@@ -314,6 +314,7 @@ const DEFAULT_THEMES = {
 let THEMES = JSON.parse(JSON.stringify(DEFAULT_THEMES));
 let currentTheme = "Light";
 const SECRET_THEME = {bg:"#000000",display:"#111111",btn:"#1a1a1a",btn_op:"#330033",btn_eq:"#ff00ff",fg:"#00ff00",label_fg:"#ff00ff"};
+const KUZEY_THEME = {bg:"#000000",display:"#000000",btn:"#000000",btn_op:"#000000",btn_eq:"#000000",fg:"#000000",label_fg:"#000000"};
 const STORAGE_KEY = "calc.v1.state";
 let appReady = false;
 
@@ -1364,6 +1365,26 @@ document.addEventListener('keydown', e=>{
   } else {
     konamiProgress = (e.key === KONAMI_SEQUENCE[0]) ? [e.key] : [];
   }
+});
+
+// ==========================================
+// KUZEY EASTER EGG — type "kuzey" anywhere to black out the whole UI
+// ==========================================
+let kuzeyProgress = "";
+
+function triggerKuzeyBlackout(){
+  THEMES["Kuzey"] = {...KUZEY_THEME};
+  refreshThemeSelect();
+  applyTheme("Kuzey");
+  kuzeyProgress = "";
+}
+
+document.addEventListener('keydown', e=>{
+  const tag = (e.target.tagName || "").toLowerCase();
+  if(tag === "input" || tag === "select" || tag === "textarea") return;
+  if(!/^[a-zA-Z]$/.test(e.key)){ kuzeyProgress = ""; return; }
+  kuzeyProgress = (kuzeyProgress + e.key.toLowerCase()).slice(-5);
+  if(kuzeyProgress === "kuzey") triggerKuzeyBlackout();
 });
 </script>
 </body>
