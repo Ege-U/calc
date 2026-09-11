@@ -57,19 +57,19 @@ button, select{ touch-action:manipulation; }
 }
 .pad-tabs{ grid-column:1/-1; display:flex; gap:6px; }
 .pad-tabs button{
-  flex:1; border:1px solid color-mix(in srgb, var(--fg) 7%, transparent); border-radius:12px 12px 0 0;
+  flex:1; border:1px solid color-mix(in srgb, var(--fg) 7%, transparent); border-radius:12px;
   padding:9px 4px; font-size:12px; font-weight:800; letter-spacing:.02em; cursor:pointer;
   color:var(--label-fg); background:color-mix(in srgb, var(--display) 50%, transparent);
   box-shadow:none; transition:background .15s ease, color .15s ease;
 }
 .pad-tabs button[aria-selected="true"]{
   color:var(--fg); background:color-mix(in srgb, var(--display) 68%, transparent);
-  box-shadow:0 -2px 0 var(--btn-eq) inset;
+  box-shadow:0 4px 10px rgba(0,0,0,.08); border-color:var(--btn-eq);
 }
 .pad-tabs button:hover{ color:var(--fg); }
 .pad{
-  display:grid; grid-template-columns:repeat(4,1fr); gap:9px; align-content:start; padding:14px; border-radius:0 0 20px 20px;
-  background:color-mix(in srgb, var(--display) 68%, transparent); border:1px solid color-mix(in srgb, var(--fg) 7%, transparent); border-top:none; box-shadow:0 12px 30px rgba(0,0,0,.06);
+  display:grid; grid-template-columns:repeat(4,1fr); gap:9px; align-content:start; padding:14px; border-radius:20px;
+  background:color-mix(in srgb, var(--display) 68%, transparent); border:1px solid color-mix(in srgb, var(--fg) 7%, transparent); box-shadow:0 12px 30px rgba(0,0,0,.06);
   min-height:290px;
 }
 .pad button, .roast, .sidebar button{
