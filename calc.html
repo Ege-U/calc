@@ -3,19 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="calc.">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f5f5f7" id="themeColor">
-<title>calc. — The Calculator Better Than Yours</title>
+<title>calc. — a calculator with standards</title>
 <style>
 :root{
   --bg:#f5f5f7; --display:#ffffff; --btn:#ffffff; --btn-op:#e5e5ea;
   --btn-eq:#ff9500; --fg:#1c1c1e; --label-fg:#3a3a3c;
 }
-*{box-sizing:border-box;}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html{ touch-action:manipulation; }
 body{
   margin:0; min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center;
   background:radial-gradient(circle at 15% 5%, color-mix(in srgb, var(--btn-eq) 14%, var(--bg)), transparent 30rem), var(--bg); color:var(--fg); font-family:ui-rounded, "SF Pro Rounded", "Avenir Next", Arial, sans-serif;
-  transition:background .25s ease;
+  transition:background .25s ease; overscroll-behavior-y:contain;
+  padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right);
 }
+button, select{ touch-action:manipulation; }
 .app{
   display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,310px); gap:16px;
   padding:24px; max-width:820px; width:100%;
@@ -70,6 +77,7 @@ body{
   cursor:pointer; color:var(--fg); background:var(--btn);
   box-shadow:0 4px 10px rgba(0,0,0,.08);
   transition:transform .05s ease, filter .15s ease, background .2s ease, box-shadow .2s ease;
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
 }
 .pad button:hover, .sidebar button:hover{ filter:brightness(1.06); box-shadow:0 2px 5px rgba(0,0,0,.14); }
 .pad button:active{ transform:scale(.94); box-shadow:0 1px 1px rgba(0,0,0,.10); }
@@ -86,15 +94,35 @@ select:focus-visible, .conv-display:focus-visible{
   box-shadow:0 5px 14px rgba(226,75,74,.26);
 }
 .roast:hover{ filter:brightness(1.08); }
+.convert-panel{ display:flex; flex-direction:column; gap:12px; min-height:0; justify-content:flex-start; }
+.pad[hidden], .convert-panel[hidden], .solve-panel[hidden]{ display:none !important; }
+.solve-panel{ display:flex; flex-direction:column; gap:12px; min-height:0; }
+.solve-panel .hint{ margin-top:0; }
+.convert-panel select{ width:100%; padding:12px; border-radius:12px; border:1px solid color-mix(in srgb, var(--fg) 15%, transparent); background:var(--display); color:var(--fg); font-size:15px; font-weight:700; }
+.convert-panel .conv-display{ width:100%; padding:18px 16px; border-radius:12px; border:1px solid color-mix(in srgb, var(--fg) 15%, transparent); background:var(--display); color:var(--fg); text-align:right; font-size:28px; font-variant-numeric:tabular-nums; box-shadow:0 8px 20px rgba(0,0,0,.06); }
+.convert-panel .conv-pad{ display:grid; grid-template-columns:repeat(3,1fr); gap:9px; }
+.convert-panel .conv-pad button{ padding:16px 0; font-size:17px; }
+.convert-panel .conv-pad button.wide{ grid-column:span 3; }
+.convert-panel .result-line{
+  font-size:17px; font-weight:800; color:var(--fg); text-align:center;
+  padding:12px; border-radius:12px; background:color-mix(in srgb, var(--btn-eq) 14%, transparent);
+}
 
 @media (max-width:620px){
   body{ align-items:flex-start; }
-  .app{ grid-template-columns:1fr; padding:14px; gap:14px; }
-  .display{ font-size:22px; }
-  .pad button{ min-height:48px; font-size:16px; }
-  .sidebar{ display:flex; gap:12px; }
-  .sidebar-section{ min-width:0; }
+  .app{ grid-template-columns:1fr; padding:12px; padding-bottom:calc(12px + env(safe-area-inset-bottom)); gap:12px; }
+  .display{ font-size:clamp(22px, 7vw, 30px); min-height:70px; padding:14px 16px; }
+  .pad{ padding:10px; gap:8px; min-height:0; }
+  .pad button{ min-height:50px; font-size:16px; padding:10px 4px; }
+  .pad-tabs button{ padding:11px 4px; font-size:12.5px; }
+  .sidebar{ display:flex; flex-direction:column; gap:10px; padding:12px; }
+  .sidebar-section{ min-width:0; width:100%; }
   .sidebar-section.wide{ grid-column:1 / -1; }
+  .conv-pad button{ min-height:38px; }
+  .theme-gallery{ grid-template-columns:repeat(2,1fr); }
+  .roast, .sidebar button{ min-height:44px; }
+  select, .theme-name-input{ font-size:16px; } /* avoid iOS auto-zoom on focus */
+  .modal{ width:92vw; max-width:400px; padding:16px; }
 }
 @media (max-width:390px){ .app-header{ align-items:center; } .tagline{ display:none; } }
 .sidebar{ display:flex; flex-direction:column; gap:12px; font-size:13px; padding:15px; border-radius:20px; background:color-mix(in srgb, var(--display) 68%, transparent); border:1px solid color-mix(in srgb, var(--fg) 7%, transparent); box-shadow:0 12px 30px rgba(0,0,0,.06); }
@@ -130,6 +158,16 @@ select, .conv-display, .theme-name-input{
 .theme-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .hint{ color:var(--label-fg); font-size:11px; line-height:1.35; margin:5px 0 0; }
 .clear-history{ background:transparent!important; box-shadow:none!important; text-decoration:underline; color:var(--label-fg)!important; font-size:11px!important; padding:3px!important; text-align:left; }
+.theme-chip.locked{ opacity:.45; filter:grayscale(1); cursor:default; }
+.theme-chip.locked:hover{ border-color:transparent; box-shadow:none; }
+.achievement-toast{
+  position:fixed; top:16px; left:50%; transform:translate(-50%,-24px); opacity:0; pointer-events:none;
+  transition:transform .25s ease, opacity .25s ease; background:#1c1c1e; color:#fff;
+  padding:12px 16px; border-radius:14px; display:flex; align-items:center; gap:10px;
+  font-size:13px; line-height:1.3; box-shadow:0 12px 30px rgba(0,0,0,.35); z-index:50; max-width:320px;
+}
+.achievement-toast.show{ opacity:1; transform:translate(-50%,0); }
+.achievement-toast .toast-icon{ font-size:24px; flex:none; }
 
 /* Theme studio modal */
 .modal-backdrop{
@@ -150,7 +188,7 @@ select, .conv-display, .theme-name-input{
 .preview-card .prow span{ flex:1; text-align:center; padding:6px 0; border-radius:6px; font-size:12px; font-weight:700; }
 .modal button.save{ width:100%; margin-top:10px; padding:10px; border:none; border-radius:8px; background:#ff9500; color:#fff; font-weight:700; cursor:pointer; }
 .modal input[type=text]{ width:100%; padding:6px; border-radius:6px; border:1px solid #555; background:#1c1c1e; color:#fff; margin-bottom:8px;}
-@media (max-width:620px){ .sidebar{ display:flex; } .app-header{ padding:0; } }
+@media (max-width:620px){ .app-header{ padding:0; } }
 </style>
 </head>
 <body>
@@ -168,6 +206,25 @@ select, .conv-display, .theme-name-input{
 
   <div class="pad-tabs" id="padTabs" role="tablist" aria-label="Calculator mode"></div>
   <div class="pad" id="pad" role="tabpanel"></div>
+  <div class="pad convert-panel" id="convertPanel" role="tabpanel" hidden>
+    <select id="convSelect">
+      <option>km -> miles</option>
+      <option>miles -> km</option>
+      <option>kg -> lb</option>
+      <option>lb -> kg</option>
+      <option>C -> F</option>
+      <option>F -> C</option>
+    </select>
+    <input class="conv-display" id="convDisplay" readonly value="0">
+    <div class="conv-pad" id="convPad"></div>
+    <div class="result-line" id="convResult">Result: -</div>
+  </div>
+  <div class="pad solve-panel" id="solvePanel" role="tabpanel" hidden>
+    <input type="text" id="solveInput" class="conv-display" placeholder="e.g. 2x + 3 = 11" style="text-align:left; font-size:17px;">
+    <button id="solveBtn" class="eq">Solve for x</button>
+    <div class="result-line" id="solveResult">Result: -</div>
+    <p class="hint">Handles linear (2x+3=11) and quadratic (x²-5x+6=0) equations in x.</p>
+  </div>
 
   <div class="sidebar">
     <h4>PROGRAMMER BASE</h4>
@@ -184,30 +241,17 @@ select, .conv-display, .theme-name-input{
     <button id="createThemeBtn">🎨 Create Theme</button>
 
     <h4>SOUND PROFILE</h4>
-    <select id="soundSelect">
-      <option>Mute</option>
-      <option>Mechanical Click</option>
-      <option>8-Bit Retro</option>
-      <option>Laser</option>
-      <option>Smooth Chords</option>
-    </select>
+    <button class="theme-toggle" id="soundToggle" type="button" aria-expanded="false" aria-controls="soundGallery">
+      <span id="currentSoundLabel">Sound: Mute</span><span class="theme-toggle-icon" aria-hidden="true">⌄</span>
+    </button>
+    <div class="theme-gallery" id="soundGallery" aria-label="Sound profile gallery" hidden></div>
 
     <h4>HISTORY</h4>
     <ul id="history"></ul>
     <button class="clear-history" id="clearHistoryBtn">Clear history</button>
 
-    <h4>UNIT CONVERTER</h4>
-    <select id="convSelect">
-      <option>km -> miles</option>
-      <option>miles -> km</option>
-      <option>kg -> lb</option>
-      <option>lb -> kg</option>
-      <option>C -> F</option>
-      <option>F -> C</option>
-    </select>
-    <input class="conv-display" id="convDisplay" readonly value="0">
-    <div class="conv-pad" id="convPad"></div>
-    <div class="result-line" id="convResult">Result: -</div>
+    <h4>ACHIEVEMENTS <span id="achievementCount" class="hint" style="display:inline; margin:0; opacity:.8;"></span></h4>
+    <div class="theme-gallery" id="achievementList" aria-label="Achievements"></div>
 
     <h4>GRAPH</h4>
     <button id="plotBtn">Plot Graph (uses display expr)</button>
@@ -215,8 +259,10 @@ select, .conv-display, .theme-name-input{
     <p class="hint">Try <strong>x²</strong>, <strong>sin(x)</strong>, or <strong>abs(x)</strong>.</p>
   </div>
 
-  <div class="version-tag">calc. — The Calculator Better Than Yours · v1.5.0</div>
+  <div class="version-tag">calc. — The Calculator Better Than Yours · v1.6.0</div>
 </div>
+
+<div class="achievement-toast" id="achievementToast" role="status" aria-live="polite"></div>
 
 <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="themeStudioTitle">
   <div class="modal">
@@ -276,7 +322,7 @@ function saveState(){
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       themes: THEMES, currentTheme, history: history.slice(-50), memory, activeTab,
-      soundPreset: document.getElementById('soundSelect').value,
+      soundPreset, achievements, calcCount, themesUsed: Array.from(themesUsedSet),
     }));
   }catch(e){ /* Storage is optional; calc. still works without it. */ }
 }
@@ -289,8 +335,11 @@ function loadState(){
     if(Array.isArray(saved.history)) history = saved.history.filter(x=>typeof x === 'string').slice(-50);
     if(Number.isFinite(saved.memory)) memory = saved.memory;
     if(typeof saved.soundPreset === 'string') soundPreset = saved.soundPreset;
-    if(typeof saved.activeTab === 'string' && TABS[saved.activeTab]) activeTab = saved.activeTab;
+    if(typeof saved.activeTab === 'string' && (TABS[saved.activeTab] || saved.activeTab === "Convert" || saved.activeTab === "Solve")) activeTab = saved.activeTab;
     if(typeof saved.currentTheme === 'string' && THEMES[saved.currentTheme]) currentTheme = saved.currentTheme;
+    if(saved.achievements && typeof saved.achievements === 'object') achievements = {...achievements, ...saved.achievements};
+    if(Number.isFinite(saved.calcCount)) calcCount = saved.calcCount;
+    if(Array.isArray(saved.themesUsed)) themesUsedSet = new Set(saved.themesUsed);
   }catch(e){ /* Ignore old or corrupt saved settings. */ }
 }
 
@@ -309,6 +358,10 @@ function applyTheme(name){
   document.getElementById('themeColor').content = t.bg;
   document.getElementById('currentThemeLabel').textContent = `Theme: ${name}`;
   renderThemeGallery();
+  if(DEFAULT_THEMES[name]){
+    themesUsedSet.add(name);
+    if(themesUsedSet.size >= Object.keys(DEFAULT_THEMES).length) unlockAchievement("allThemes");
+  }
   saveState();
 }
 
@@ -351,6 +404,43 @@ function renderThemeGallery(){
 // ==========================================
 let audioCtx = null;
 let soundPreset = "Mute";
+const SOUND_PRESETS = ["Mute","Mechanical Click","8-Bit Retro","Laser","Smooth Chords"];
+const SOUND_ICONS = {"Mute":"🔇","Mechanical Click":"⌨️","8-Bit Retro":"👾","Laser":"🔫","Smooth Chords":"🎹"};
+
+function applySound(name, {preview=true}={}){
+  if(!SOUND_PRESETS.includes(name)) return;
+  soundPreset = name;
+  document.getElementById('currentSoundLabel').textContent = `Sound: ${name}`;
+  renderSoundGallery();
+  if(preview && name !== "Mute") playSound("equals");
+  saveState();
+}
+
+function renderSoundGallery(){
+  const gallery = document.getElementById('soundGallery');
+  if(!gallery) return;
+  gallery.innerHTML = '';
+  SOUND_PRESETS.forEach(name=>{
+    const button = document.createElement('button');
+    button.className = 'theme-chip';
+    button.type = 'button';
+    button.title = `Use ${name} sound profile`;
+    button.setAttribute('aria-pressed', String(name === soundPreset));
+    const icon = document.createElement('span');
+    icon.textContent = SOUND_ICONS[name] || "🔊";
+    const label = document.createElement('span');
+    label.className = 'theme-name';
+    label.textContent = name;
+    button.append(icon, label);
+    button.addEventListener('click', ()=>{
+      applySound(name);
+      document.getElementById('soundGallery').hidden = true;
+      document.getElementById('soundToggle').setAttribute('aria-expanded', 'false');
+    });
+    gallery.appendChild(button);
+  });
+}
+
 function getCtx(){
   if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
   if(audioCtx.state === 'suspended') audioCtx.resume();
@@ -525,6 +615,76 @@ const ROASTS = [
   "Calculator app is legally required to be this mid",
 ];
 
+const DIV_ZERO_ROASTS = [
+  "Dividing by zero? Bold. Wrong, but bold.",
+  "The universe just sighed at you.",
+  "Congrats, you broke math.",
+  "Zero called — it doesn't want to be a denominator.",
+  "That's a paddlin'.",
+  "Somewhere, a mathematician felt a disturbance.",
+  "Undefined. Just like your life choices right now.",
+];
+const ZERO_POW_ZERO_ROASTS = [
+  "0^0 is a philosophical crisis, not a calculation.",
+  "Mathematicians are still arguing about this one. You just made it worse.",
+  "Schrödinger's exponent: could be 1, could be undefined, definitely chaos.",
+  "You've entered mathematics purgatory.",
+  "Even calculators need therapy after this input.",
+];
+function pickRandom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+// ==========================================
+// ACHIEVEMENTS
+// ==========================================
+const ACHIEVEMENT_DEFS = {
+  divZero:     {icon:"💀", title:"Forbidden Math",        desc:"Tried dividing by zero"},
+  zeroPowZero: {icon:"🌀", title:"Philosophical Crisis",  desc:"Attempted 0^0"},
+  calc100:     {icon:"🧮", title:"Century Club",          desc:"Performed 100 calculations"},
+  allThemes:   {icon:"🎨", title:"Full Palette",          desc:"Tried every built-in theme"},
+  secretTheme: {icon:"🕹️", title:"Code Breaker",          desc:"Found the Konami secret theme"},
+};
+let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false};
+let calcCount = 0;
+let themesUsedSet = new Set();
+
+function unlockAchievement(id){
+  if(achievements[id]) return;
+  achievements[id] = true;
+  renderAchievements();
+  showAchievementToast(ACHIEVEMENT_DEFS[id]);
+}
+
+function showAchievementToast(def){
+  const toast = document.getElementById('achievementToast');
+  if(!toast) return;
+  toast.innerHTML = `<span class="toast-icon">${def.icon}</span><div><strong>${def.title}</strong><br>${def.desc}</div>`;
+  toast.classList.add('show');
+  clearTimeout(showAchievementToast._t);
+  showAchievementToast._t = setTimeout(()=> toast.classList.remove('show'), 3200);
+}
+
+function renderAchievements(){
+  const list = document.getElementById('achievementList');
+  if(!list) return;
+  list.innerHTML = '';
+  Object.entries(ACHIEVEMENT_DEFS).forEach(([id,def])=>{
+    const unlocked = achievements[id];
+    const chip = document.createElement('div');
+    chip.className = 'theme-chip' + (unlocked ? '' : ' locked');
+    chip.title = unlocked ? def.desc : `Locked — ${def.desc}`;
+    const icon = document.createElement('span');
+    icon.textContent = unlocked ? def.icon : "🔒";
+    const label = document.createElement('span');
+    label.className = 'theme-name';
+    label.textContent = unlocked ? def.title : "???";
+    chip.append(icon, label);
+    list.appendChild(chip);
+  });
+  const count = Object.values(achievements).filter(Boolean).length;
+  const countEl = document.getElementById('achievementCount');
+  if(countEl) countEl.textContent = `${count}/${Object.keys(ACHIEVEMENT_DEFS).length} unlocked`;
+}
+
 function sanitize(expr){
   return expr
     .replace(/\^/g, "**")
@@ -575,6 +735,74 @@ function safeEval(expr){
   if(!/^(?:(?:Math\.(?:sin|cos|tan|asin|acos|atan|sinh|cosh|tanh|log10|log2|log|exp|sqrt|cbrt|abs|sign|floor|ceil|round|min|max|hypot|PI|E))|[0-9+\-*/%,.()\s<>&|^])*$/.test(js)) throw new Error("Invalid expression");
   // eslint-disable-next-line no-new-func
   return Function('"use strict"; return (' + js + ')')();
+}
+
+// ==========================================
+// EQUATION SOLVER (numeric sampling — no symbolic algebra required)
+// Works for anything linear or quadratic in x by fitting a curve
+// through f(0), f(1), f(2) of (lhs - rhs).
+// ==========================================
+function toSolverJS(expr){
+  let js = sanitize(expr);
+  // insert implicit multiplication: 2x -> 2*x, 2(x+1) -> 2*(x+1), )( -> )*(, x( -> x*(
+  js = js.replace(/(\d)\s*([xX(])/g, '$1*$2')
+         .replace(/([xX)])\s*(\d)/g, '$1*$2')
+         .replace(/\)\s*\(/g, ')*(')
+         .replace(/([xX])\s*\(/g, '$1*(');
+  js = js.replace(/asin/g, "__ASIN__").replace(/acos/g, "__ACOS__").replace(/atan/g, "__ATAN__")
+         .replace(/sinh/g, "__SINH__").replace(/cosh/g, "__COSH__").replace(/tanh/g, "__TANH__");
+  js = js.replace(/\*\*/g, "__POW__");
+  js = js.replace(/sin/g, "Math.sin").replace(/cos/g, "Math.cos").replace(/tan/g, "Math.tan")
+         .replace(/log2/g, "Math.log2").replace(/log/g, "Math.log10").replace(/ln/g, "Math.log")
+         .replace(/exp/g, "Math.exp").replace(/sqrt/g, "Math.sqrt").replace(/abs/g, "Math.abs")
+         .replace(/floor/g, "Math.floor").replace(/ceil/g, "Math.ceil").replace(/round/g, "Math.round")
+         .replace(/cbrt/g, "Math.cbrt").replace(/sign/g, "Math.sign").replace(/min/g, "Math.min")
+         .replace(/max/g, "Math.max").replace(/hypot/g, "Math.hypot").replace(/PI/g, "Math.PI").replace(/E/g, "Math.E");
+  js = js.replace(/__ASIN__/g, "Math.asin").replace(/__ACOS__/g, "Math.acos").replace(/__ATAN__/g, "Math.atan")
+         .replace(/__SINH__/g, "Math.sinh").replace(/__COSH__/g, "Math.cosh").replace(/__TANH__/g, "Math.tanh");
+  js = js.replace(/__POW__/g, "**");
+  const open = (js.match(/\(/g)||[]).length;
+  const close = (js.match(/\)/g)||[]).length;
+  if(open>close) js += ")".repeat(open-close);
+  if(!/^(?:(?:Math\.(?:sin|cos|tan|asin|acos|atan|sinh|cosh|tanh|log10|log2|log|exp|sqrt|cbrt|abs|sign|floor|ceil|round|min|max|hypot|PI|E))|[0-9xX+\-*/%,.()\s<>&|^])*$/.test(js)) throw new Error("Invalid equation");
+  return js;
+}
+
+function round6(n){ return Math.round(n*1e6)/1e6; }
+
+function solveEquation(){
+  const raw = document.getElementById('solveInput').value.trim();
+  const resEl = document.getElementById('solveResult');
+  if(!raw){ resEl.textContent = "Result: enter an equation, e.g. 2x + 3 = 11"; return; }
+  try{
+    let lhs, rhs;
+    if(raw.includes("=")){ const parts = raw.split("="); lhs = parts[0]; rhs = parts.slice(1).join("="); }
+    else { lhs = raw; rhs = "0"; }
+    const fn = Function('x', '"use strict"; return ((' + toSolverJS(lhs) + ') - (' + toSolverJS(rhs) + '));');
+    const f0 = fn(0), f1 = fn(1), f2 = fn(2);
+    if(![f0,f1,f2].every(Number.isFinite)) throw new Error("undefined at sample points");
+    const m1 = f1-f0, m2 = f2-f1;
+    const isLinear = Math.abs(m2-m1) < 1e-6*(1+Math.abs(m1)+Math.abs(m2));
+    playSound("equals");
+    if(isLinear){
+      const m = m1, b = f0;
+      if(Math.abs(m) < 1e-9) resEl.textContent = Math.abs(b) < 1e-9 ? "Result: infinite solutions (always true)" : "Result: no solution";
+      else resEl.textContent = `Result: x = ${round6(-b/m)}`;
+    } else {
+      const a = (f2-2*f1+f0)/2, b = f1-f0-a, c = f0;
+      const disc = b*b - 4*a*c;
+      if(disc >= 0){
+        const sq = Math.sqrt(disc);
+        const x1 = round6((-b+sq)/(2*a)), x2 = round6((-b-sq)/(2*a));
+        resEl.textContent = Math.abs(x1-x2) < 1e-9 ? `Result: x = ${x1}` : `Result: x = ${x1} or x = ${x2}`;
+      } else {
+        const re = round6(-b/(2*a)), im = round6(Math.sqrt(-disc)/(2*a));
+        resEl.textContent = `Result: x = ${re} ± ${im}i`;
+      }
+    }
+  }catch(e){
+    resEl.textContent = "Result: couldn't solve that — check your equation";
+  }
 }
 
 function updateProgDisplay(){
@@ -632,6 +860,18 @@ function press(key){
   else if(key==="M+"){ try{ memory += Number(safeEval(expression)); }catch(e){} }
   else if(key==="M-"){ try{ memory -= Number(safeEval(expression)); }catch(e){} }
   else if(key==="="){
+    if(/0\s*(\*\*|\^)\s*0(?!\d)/.test(expression)){
+      unlockAchievement("zeroPowZero");
+      setDisplay(pickRandom(ZERO_POW_ZERO_ROASTS));
+      saveState();
+      return;
+    }
+    if(/\/\s*\(?\s*0+(?:\.0*)?\)?(?!\d)/.test(expression)){
+      unlockAchievement("divZero");
+      setDisplay(pickRandom(DIV_ZERO_ROASTS));
+      saveState();
+      return;
+    }
     try{
       let result = safeEval(expression);
       if(typeof result === "number" && !Number.isInteger(result)) result = Math.round(result*1e6)/1e6;
@@ -639,6 +879,8 @@ function press(key){
       history.push(`${expression} = ${result}`);
       updateHistory();
       expression = String(result);
+      calcCount++;
+      if(calcCount >= 100) unlockAchievement("calc100");
     }catch(e){
       expression = "Error";
     }
@@ -765,10 +1007,12 @@ const BUTTON_TITLES = {
 const DISPLAY_LABELS = { "*": "×", "/": "÷" };
 let activeTab = "Basic";
 
+const TAB_NAMES = [...Object.keys(TABS), "Convert", "Solve"];
+
 function buildTabs(){
   const bar = document.getElementById('padTabs');
   bar.innerHTML = '';
-  Object.keys(TABS).forEach(name=>{
+  TAB_NAMES.forEach(name=>{
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = name;
@@ -788,6 +1032,12 @@ function buildTabs(){
 
 function buildPad(){
   const pad = document.getElementById('pad');
+  const convertPanel = document.getElementById('convertPanel');
+  const solvePanel = document.getElementById('solvePanel');
+  pad.hidden = true; convertPanel.hidden = true; solvePanel.hidden = true;
+  if(activeTab === "Convert"){ convertPanel.hidden = false; return; }
+  if(activeTab === "Solve"){ solvePanel.hidden = false; return; }
+  pad.hidden = false;
   pad.innerHTML = '';
   TABS[activeTab].forEach(key=>{
     if(key === ""){
@@ -1011,9 +1261,11 @@ buildTabs();
 buildPad();
 buildConvPad();
 refreshThemeSelect();
-document.getElementById('soundSelect').value = soundPreset;
+document.getElementById('currentSoundLabel').textContent = `Sound: ${soundPreset}`;
+renderSoundGallery();
 applyTheme(currentTheme);
 updateHistory();
+renderAchievements();
 appReady = true;
 saveState();
 
@@ -1028,10 +1280,11 @@ document.getElementById('saveThemeBtn').addEventListener('click', saveThemeAndAp
 document.getElementById('modalBackdrop').addEventListener('click', e=>{
   if(e.target.id === 'modalBackdrop') document.getElementById('modalBackdrop').classList.remove('open');
 });
-document.getElementById('soundSelect').addEventListener('change', e=>{
-  soundPreset = e.target.value;
-  playSound("equals");
-  saveState();
+document.getElementById('soundToggle').addEventListener('click', ()=>{
+  const gallery = document.getElementById('soundGallery');
+  const isOpen = !gallery.hidden;
+  gallery.hidden = isOpen;
+  document.getElementById('soundToggle').setAttribute('aria-expanded', String(!isOpen));
 });
 document.getElementById('convSelect').addEventListener('change', executeConversion);
 document.getElementById('clearHistoryBtn').addEventListener('click', ()=>{
@@ -1064,6 +1317,8 @@ document.getElementById('copyBtn').addEventListener('click', async ()=>{
   setTimeout(()=>{ statusEl.textContent = ""; }, 1200);
 });
 document.getElementById('plotBtn').addEventListener('click', plotGraph);
+document.getElementById('solveBtn').addEventListener('click', solveEquation);
+document.getElementById('solveInput').addEventListener('keydown', e=>{ if(e.key === 'Enter') solveEquation(); });
 
 document.addEventListener('keydown', e=>{
   const tag = (e.target.tagName || "").toLowerCase();
@@ -1095,6 +1350,7 @@ function unlockSecretTheme(){
   playSound("equals");
   setDisplay("You found the secret. Respect.");
   expression = "";
+  unlockAchievement("secretTheme");
 }
 
 document.addEventListener('keydown', e=>{
