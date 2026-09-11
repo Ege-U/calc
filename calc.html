@@ -643,8 +643,9 @@ const ACHIEVEMENT_DEFS = {
   calc100:     {icon:"🧮", title:"Century Club",          desc:"Performed 100 calculations"},
   allThemes:   {icon:"🎨", title:"Full Palette",          desc:"Tried every built-in theme"},
   secretTheme: {icon:"🕹️", title:"Code Breaker",          desc:"Found the Konami secret theme"},
+  kuzey:       {icon:"🖤", title:"Big Black Kuzey",       desc:"Typed \"kuzey\" and blacked out the UI"},
 };
-let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false};
+let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false, kuzey:false};
 let calcCount = 0;
 let themesUsedSet = new Set();
 
@@ -1377,6 +1378,7 @@ function triggerKuzeyBlackout(){
   refreshThemeSelect();
   applyTheme("Kuzey");
   kuzeyProgress = "";
+  unlockAchievement("kuzey");
 }
 
 document.addEventListener('keydown', e=>{
