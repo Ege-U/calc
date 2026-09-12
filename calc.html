@@ -6,8 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="calc.">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23ff9500'/%3E%3Crect x='28' y='44' width='44' height='12' rx='5' fill='%23ffffff'/%3E%3Crect x='44' y='28' width='12' height='44' rx='5' fill='%23ffffff'/%3E%3C/svg%3E">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f5f5f7" id="themeColor">
+<link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23ff9500'/%3E%3Crect x='28' y='44' width='44' height='12' rx='5' fill='%23ffffff'/%3E%3Crect x='44' y='28' width='12' height='44' rx='5' fill='%23ffffff'/%3E%3C/svg%3E">
 <title>calc. — The Best Calculator.</title>
 <style>
 :root{
@@ -253,13 +255,17 @@ select, .conv-display, .theme-name-input{
     <h4>ACHIEVEMENTS <span id="achievementCount" class="hint" style="display:inline; margin:0; opacity:.8;"></span></h4>
     <div class="theme-gallery" id="achievementList" aria-label="Achievements"></div>
 
+    <h4>STATS</h4>
+    <div id="statsPanel" class="hint" style="line-height:1.7; margin-top:0;"></div>
+    <button class="clear-history" id="exportHistoryBtn" type="button">Export history (.txt)</button>
+
     <h4>GRAPH</h4>
     <button id="plotBtn">Plot Graph (uses display expr)</button>
     <canvas id="graphCanvas" width="220" height="140"></canvas>
     <p class="hint">Try <strong>x²</strong>, <strong>sin(x)</strong>, or <strong>abs(x)</strong>.</p>
   </div>
 
-  <div class="version-tag">calc. — The Best Calculator · v1.7.1</div>
+  <div class="version-tag">calc. — The Best Calculator · v1.8.0</div>
 </div>
 
 <div class="achievement-toast" id="achievementToast" role="status" aria-live="polite"></div>
@@ -323,7 +329,8 @@ function saveState(){
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       themes: THEMES, currentTheme, history: history.slice(-50), memory, activeTab,
-      soundPreset, achievements, calcCount, themesUsed: Array.from(themesUsedSet),
+      soundPreset, achievements, calcCount, themesUsed: Array.from(themesUsedSet), tabsVisited: Array.from(tabsVisitedSet),
+      operatorUsageCounts, themeUsageCounts, streakCount, lastOpenDateStr,
     }));
   }catch(e){ /* Storage is optional; calc. still works without it. */ }
 }
@@ -341,12 +348,37 @@ function loadState(){
     if(saved.achievements && typeof saved.achievements === 'object') achievements = {...achievements, ...saved.achievements};
     if(Number.isFinite(saved.calcCount)) calcCount = saved.calcCount;
     if(Array.isArray(saved.themesUsed)) themesUsedSet = new Set(saved.themesUsed);
+    if(Array.isArray(saved.tabsVisited)) tabsVisitedSet = new Set(saved.tabsVisited);
+    if(saved.operatorUsageCounts && typeof saved.operatorUsageCounts === 'object') operatorUsageCounts = saved.operatorUsageCounts;
+    if(saved.themeUsageCounts && typeof saved.themeUsageCounts === 'object') themeUsageCounts = saved.themeUsageCounts;
+    if(Number.isFinite(saved.streakCount)) streakCount = saved.streakCount;
+    if(typeof saved.lastOpenDateStr === 'string') lastOpenDateStr = saved.lastOpenDateStr;
   }catch(e){ /* Ignore old or corrupt saved settings. */ }
+}
+
+function isLightColor(hex){
+  const c = (hex||"").replace('#','');
+  if(c.length !== 6) return false;
+  const r = parseInt(c.substring(0,2),16), g = parseInt(c.substring(2,4),16), b = parseInt(c.substring(4,6),16);
+  if([r,g,b].some(Number.isNaN)) return false;
+  return (0.299*r + 0.587*g + 0.114*b)/255 > 0.88;
+}
+
+function updateFavicon(bgColor){
+  const plusColor = isLightColor(bgColor) ? "#1c1c1e" : "#ffffff";
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='${bgColor}'/><rect x='28' y='44' width='44' height='12' rx='5' fill='${plusColor}'/><rect x='44' y='28' width='12' height='44' rx='5' fill='${plusColor}'/></svg>`;
+  const link = document.getElementById('favicon');
+  if(link) link.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 
 function applyTheme(name){
   if(!THEMES[name]) return;
+  if(currentTheme !== name){
+    themeSwitchCount++;
+    if(themeSwitchCount >= 20) unlockAchievement("themeHopper");
+  }
   currentTheme = name;
+  themeUsageCounts[name] = (themeUsageCounts[name]||0)+1;
   const t = THEMES[name];
   const r = document.documentElement.style;
   r.setProperty('--bg', t.bg);
@@ -358,7 +390,9 @@ function applyTheme(name){
   r.setProperty('--label-fg', t.label_fg);
   document.getElementById('themeColor').content = t.bg;
   document.getElementById('currentThemeLabel').textContent = `Theme: ${name}`;
+  updateFavicon(t.btn_eq, t.fg);
   renderThemeGallery();
+  renderStats();
   if(DEFAULT_THEMES[name]){
     themesUsedSet.add(name);
     if(themesUsedSet.size >= Object.keys(DEFAULT_THEMES).length) unlockAchievement("allThemes");
@@ -632,6 +666,14 @@ const ZERO_POW_ZERO_ROASTS = [
   "You've entered mathematics purgatory.",
   "Even calculators need therapy after this input.",
 ];
+const EMPTY_EQUALS_LINES = [
+  "you didn't type anything.",
+  "= what, exactly?",
+  "there's nothing here. bold move.",
+  "I can't guess your homework for you.",
+  "nice try.",
+  "0 = 0, if that's what you wanted.",
+];
 function pickRandom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 
 // ==========================================
@@ -644,16 +686,78 @@ const ACHIEVEMENT_DEFS = {
   allThemes:   {icon:"🎨", title:"Full Palette",          desc:"Tried every built-in theme"},
   secretTheme: {icon:"🕹️", title:"Code Breaker",          desc:"Found the Konami secret theme"},
   kuzey:       {icon:"🖤", title:"Big Black Kuzey",       desc:"Typed \"kuzey\" and blacked out the UI"},
+  explorer:    {icon:"🧭", title:"Explorer",              desc:"Visited every tab at least once"},
+  speedDemon:  {icon:"⚡", title:"Speed Demon",           desc:"Did 10 calculations in under 30 seconds"},
+  nightOwl:    {icon:"🦉", title:"Night Owl",             desc:"Used calc. between 2–4am"},
+  graphNerd:   {icon:"📈", title:"Graph Nerd",            desc:"Plotted a graph"},
+  solverFan:   {icon:"🧠", title:"Algebra Enjoyer",       desc:"Solved an equation"},
+  converterFan:{icon:"📐", title:"Unit Nerd",             desc:"Used the unit converter"},
+  idleChat:    {icon:"💤", title:"Left On Read",          desc:"Let the calculator go idle and talk to itself"},
+  matrixWord:  {icon:"💊", title:"Red Pill",              desc:"Typed \"matrix\""},
+  yoloWord:    {icon:"🎲", title:"YOLO",                  desc:"Typed \"yolo\" and gambled the theme"},
+  niceWord:    {icon:"😏", title:"Nice.",                 desc:"Typed \"nice\""},
+  perfectionist:{icon:"🎯", title:"Perfectionist",        desc:"Got a whole-number answer from the Solve tab"},
+  themeHopper: {icon:"🔄", title:"Theme Hopper",          desc:"Switched themes 20 times in one session"},
+  marathon:    {icon:"🌙", title:"Marathon",              desc:"Kept the tab open for 1+ hour"},
+  peacemaker:  {icon:"🤝", title:"Peacemaker",            desc:"Solved an equation with no solution"},
+  firstTimer:  {icon:"🐣", title:"First Timer",           desc:"Did your very first calculation"},
+  customCreator:{icon:"🌈", title:"Custom Creator",       desc:"Saved your own custom theme"},
 };
-let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false, kuzey:false};
+let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false, kuzey:false,
+  explorer:false, speedDemon:false, nightOwl:false, graphNerd:false, solverFan:false, converterFan:false,
+  idleChat:false, matrixWord:false, yoloWord:false, niceWord:false,
+  perfectionist:false, themeHopper:false, marathon:false, peacemaker:false, firstTimer:false, customCreator:false};
 let calcCount = 0;
+let calcTimestamps = [];
 let themesUsedSet = new Set();
+let tabsVisitedSet = new Set();
+let themeSwitchCount = 0;
+let sessionStartTime = Date.now();
+let operatorUsageCounts = {};
+let themeUsageCounts = {};
+let streakCount = 0;
+let lastOpenDateStr = null;
+
+function updateStreak(){
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`;
+  if(lastOpenDateStr === todayStr) return;
+  if(lastOpenDateStr){
+    const prev = new Date(lastOpenDateStr.replace(/(\d+)-(\d+)-(\d+)/, (m,y,mo,d)=>`${y}/${mo}/${d}`));
+    const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const prev0 = new Date(prev.getFullYear(), prev.getMonth(), prev.getDate());
+    const diffDays = Math.round((today0 - prev0)/86400000);
+    streakCount = (diffDays === 1) ? streakCount+1 : 1;
+  } else {
+    streakCount = 1;
+  }
+  lastOpenDateStr = todayStr;
+}
 
 function unlockAchievement(id){
   if(achievements[id]) return;
   achievements[id] = true;
   renderAchievements();
   showAchievementToast(ACHIEVEMENT_DEFS[id]);
+  playAchievementChime();
+}
+
+function playAchievementChime(){
+  try{
+    const ctx = getCtx();
+    const scheduleChime = ()=>{
+      const master = ctx.createGain();
+      master.gain.value = 0.9;
+      master.connect(ctx.destination);
+      const now = ctx.currentTime + 0.001;
+      [523.25, 659.25, 783.99, 1046.5].forEach((f,i)=>{
+        tone(ctx, master, {wave:"triangle", freq:f, start:now+i*0.08, dur:0.35,
+          attack:0.006, decay:0.15, sustain:0.25, gain:0.14, filterType:"lowpass", filterFreq:4000, filterQ:0.6});
+      });
+    };
+    if(ctx.state === 'suspended') ctx.resume().then(scheduleChime).catch(()=>{});
+    else scheduleChime();
+  }catch(e){ /* ignore audio errors */ }
 }
 
 function showAchievementToast(def){
@@ -685,6 +789,42 @@ function renderAchievements(){
   const count = Object.values(achievements).filter(Boolean).length;
   const countEl = document.getElementById('achievementCount');
   if(countEl) countEl.textContent = `${count}/${Object.keys(ACHIEVEMENT_DEFS).length} unlocked`;
+}
+
+// ==========================================
+// STATS PANEL
+// ==========================================
+function renderStats(){
+  const el = document.getElementById('statsPanel');
+  if(!el) return;
+  const totalCalcs = calcCount;
+  let topOp = "—";
+  const opEntries = Object.entries(operatorUsageCounts);
+  if(opEntries.length) topOp = opEntries.sort((a,b)=>b[1]-a[1])[0][0];
+  let favTheme = "—";
+  const themeEntries = Object.entries(themeUsageCounts);
+  if(themeEntries.length) favTheme = themeEntries.sort((a,b)=>b[1]-a[1])[0][0];
+  const unlockedCount = Object.values(achievements).filter(Boolean).length;
+  const pct = Math.round((unlockedCount/Object.keys(ACHIEVEMENT_DEFS).length)*100);
+  el.innerHTML = `Total calculations: <strong>${totalCalcs}</strong><br>
+    Most-used operator: <strong>${topOp}</strong><br>
+    Favorite theme: <strong>${favTheme}</strong><br>
+    Daily streak: <strong>${streakCount} day${streakCount===1?'':'s'}</strong><br>
+    Achievements: <strong>${unlockedCount}/${Object.keys(ACHIEVEMENT_DEFS).length} (${pct}%)</strong>`;
+}
+
+function exportHistory(){
+  const lines = history.length ? history : ["(no calculations yet)"];
+  const text = "calc. — calculation history\n" + "=".repeat(30) + "\n" + lines.join("\n");
+  const blob = new Blob([text], {type:"text/plain"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = "calc-history.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function sanitize(expr){
@@ -786,10 +926,17 @@ function solveEquation(){
     const m1 = f1-f0, m2 = f2-f1;
     const isLinear = Math.abs(m2-m1) < 1e-6*(1+Math.abs(m1)+Math.abs(m2));
     playSound("equals");
+    unlockAchievement("solverFan");
     if(isLinear){
       const m = m1, b = f0;
-      if(Math.abs(m) < 1e-9) resEl.textContent = Math.abs(b) < 1e-9 ? "Result: infinite solutions (always true)" : "Result: no solution";
-      else resEl.textContent = `Result: x = ${round6(-b/m)}`;
+      if(Math.abs(m) < 1e-9){
+        resEl.textContent = Math.abs(b) < 1e-9 ? "Result: infinite solutions (always true)" : "Result: no solution";
+        if(Math.abs(b) >= 1e-9) unlockAchievement("peacemaker");
+      } else {
+        const x = round6(-b/m);
+        resEl.textContent = `Result: x = ${x}`;
+        if(Number.isInteger(x)) unlockAchievement("perfectionist");
+      }
     } else {
       const a = (f2-2*f1+f0)/2, b = f1-f0-a, c = f0;
       const disc = b*b - 4*a*c;
@@ -797,6 +944,7 @@ function solveEquation(){
         const sq = Math.sqrt(disc);
         const x1 = round6((-b+sq)/(2*a)), x2 = round6((-b-sq)/(2*a));
         resEl.textContent = Math.abs(x1-x2) < 1e-9 ? `Result: x = ${x1}` : `Result: x = ${x1} or x = ${x2}`;
+        if(Number.isInteger(x1) || Number.isInteger(x2)) unlockAchievement("perfectionist");
       } else {
         const re = round6(-b/(2*a)), im = round6(Math.sqrt(-disc)/(2*a));
         resEl.textContent = `Result: x = ${re} ± ${im}i`;
@@ -848,11 +996,29 @@ function setDisplay(text){
   document.getElementById('display').textContent = text;
 }
 
+// ==========================================
+// RAPID-CLICK DETECTION — mash buttons fast enough and it notices
+// ==========================================
+let clickBurstTimestamps = [];
+function checkRapidClicks(){
+  const now = Date.now();
+  clickBurstTimestamps.push(now);
+  if(clickBurstTimestamps.length > 6) clickBurstTimestamps.shift();
+  if(clickBurstTimestamps.length === 6 && now - clickBurstTimestamps[0] < 600){
+    clickBurstTimestamps = [];
+    setDisplay("are you okay??");
+    setTimeout(()=>{ if(document.getElementById('display').textContent === "are you okay??") setDisplay(expression || "0"); }, 1200);
+  }
+}
+
 function press(key){
+  checkRapidClicks();
   if(["+","-","*","/","%","^","sin","cos","tan","log","√"].includes(key)) playSound("operator");
   else if(key==="=") playSound("equals");
   else if(["C","del","MC"].includes(key)) playSound("clear");
   else playSound("number", key);
+
+  if(["+","-","*","/"].includes(key)) operatorUsageCounts[key] = (operatorUsageCounts[key]||0)+1;
 
   if(expression === "Error" && !["C","del","MC","MR","M+","M-"].includes(key)) expression = "";
   if(key==="C"){ expression = ""; }
@@ -862,6 +1028,10 @@ function press(key){
   else if(key==="M+"){ try{ memory += Number(safeEval(expression)); }catch(e){} }
   else if(key==="M-"){ try{ memory -= Number(safeEval(expression)); }catch(e){} }
   else if(key==="="){
+    if(expression.trim() === ""){
+      setDisplay(pickRandom(EMPTY_EQUALS_LINES));
+      return;
+    }
     if(/0\s*(\*\*|\^)\s*0(?!\d)/.test(expression)){
       unlockAchievement("zeroPowZero");
       setDisplay(pickRandom(ZERO_POW_ZERO_ROASTS));
@@ -882,7 +1052,15 @@ function press(key){
       updateHistory();
       expression = String(result);
       calcCount++;
+      if(calcCount >= 1) unlockAchievement("firstTimer");
       if(calcCount >= 100) unlockAchievement("calc100");
+      const nowTs = Date.now();
+      calcTimestamps.push(nowTs);
+      if(calcTimestamps.length > 10) calcTimestamps.shift();
+      if(calcTimestamps.length === 10 && nowTs - calcTimestamps[0] <= 30000) unlockAchievement("speedDemon");
+      const hour = new Date().getHours();
+      if(hour >= 2 && hour < 4) unlockAchievement("nightOwl");
+      renderStats();
     }catch(e){
       expression = "Error";
     }
@@ -1024,6 +1202,8 @@ function buildTabs(){
       if(activeTab === name) return;
       playSound("operator");
       activeTab = name;
+      tabsVisitedSet.add(name);
+      if(tabsVisitedSet.size >= TAB_NAMES.length) unlockAchievement("explorer");
       buildTabs();
       buildPad();
       saveState();
@@ -1100,6 +1280,7 @@ function executeConversion(){
     case "F -> C": res = (val-32)*5/9; break;
   }
   resEl.textContent = "Result: " + (Math.round(res*10000)/10000);
+  unlockAchievement("converterFan");
 }
 
 // ==========================================
@@ -1107,6 +1288,7 @@ function executeConversion(){
 // ==========================================
 function plotGraph(){
   playSound("operator");
+  unlockAchievement("graphNerd");
   const canvas = document.getElementById('graphCanvas');
   const ctx2d = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -1251,6 +1433,7 @@ function saveThemeAndApply(){
   THEMES[name] = {...studioColors};
   refreshThemeSelect();
   applyTheme(name);
+  unlockAchievement("customCreator");
   saveState();
   document.getElementById('modalBackdrop').classList.remove('open');
 }
@@ -1258,7 +1441,71 @@ function saveThemeAndApply(){
 // ==========================================
 // WIRE UP
 // ==========================================
+// ==========================================
+// IDLE MODE — calculator gets bored and starts talking after inactivity
+// ==========================================
+const IDLE_MESSAGES = [
+  "...hello?",
+  "still here.",
+  "just vibing.",
+  "do some math or something.",
+  "I have the answer to everything. try me.",
+  "42.",
+  "you good?",
+  "waiting is a form of art.",
+  "beep. boop. calculator noises.",
+  "counting the seconds until you press something.",
+  "this is my villain origin story.",
+  "you know I can add, right?",
+  "if you leave me here long enough I start plotting.",
+  "kuzey would never leave me on read.",
+];
+let idleTimer = null;
+let idleMessageInterval = null;
+let idleActive = false;
+let lastActivity = Date.now();
+
+function showNextIdleMessage(){
+  setDisplay(pickRandom(IDLE_MESSAGES));
+}
+
+function enterIdleMode(){
+  if(idleActive) return;
+  idleActive = true;
+  unlockAchievement("idleChat");
+  showNextIdleMessage();
+  idleMessageInterval = setInterval(showNextIdleMessage, 4500);
+}
+
+function exitIdleMode(){
+  if(!idleActive) return;
+  idleActive = false;
+  clearInterval(idleMessageInterval);
+  idleMessageInterval = null;
+  setDisplay(expression || "0");
+}
+
+function registerActivity(){
+  lastActivity = Date.now();
+  if(idleActive) exitIdleMode();
+}
+
+["mousemove","mousedown","keydown","touchstart","wheel"].forEach(evt=>{
+  document.addEventListener(evt, registerActivity, {passive:true});
+});
+
+setInterval(()=>{
+  if(!idleActive && Date.now()-lastActivity >= 20000) enterIdleMode();
+  if(Date.now()-sessionStartTime >= 3600000) unlockAchievement("marathon");
+}, 1000);
+
+// ==========================================
+// WIRE-UP
+// ==========================================
 loadState();
+updateStreak();
+tabsVisitedSet.add(activeTab);
+if(tabsVisitedSet.size >= TAB_NAMES.length) unlockAchievement("explorer");
 buildTabs();
 buildPad();
 buildConvPad();
@@ -1268,6 +1515,8 @@ renderSoundGallery();
 applyTheme(currentTheme);
 updateHistory();
 renderAchievements();
+renderStats();
+if(calcCount >= 1) unlockAchievement("firstTimer");
 appReady = true;
 saveState();
 
@@ -1293,6 +1542,7 @@ document.getElementById('clearHistoryBtn').addEventListener('click', ()=>{
   history = [];
   updateHistory();
 });
+document.getElementById('exportHistoryBtn').addEventListener('click', exportHistory);
 document.getElementById('roastBtn').addEventListener('click', roast);
 document.getElementById('copyBtn').addEventListener('click', async ()=>{
   playSound("equals");
@@ -1369,24 +1619,160 @@ document.addEventListener('keydown', e=>{
 });
 
 // ==========================================
-// KUZEY EASTER EGG — type "kuzey" anywhere to black out the whole UI
+// KEYBOARD EASTER EGGS — type a secret word anywhere to trigger it
 // ==========================================
-let kuzeyProgress = "";
-
 function triggerKuzeyBlackout(){
   THEMES["Kuzey"] = {...KUZEY_THEME};
   refreshThemeSelect();
   applyTheme("Kuzey");
-  kuzeyProgress = "";
   unlockAchievement("kuzey");
 }
+
+const MATRIX_THEME = {bg:"#000000",display:"#001a00",btn:"#001a00",btn_op:"#003300",btn_eq:"#00ff41",fg:"#00ff41",label_fg:"#00cc33"};
+function triggerMatrix(){
+  THEMES["The Matrix"] = {...MATRIX_THEME};
+  refreshThemeSelect();
+  applyTheme("The Matrix");
+  setDisplay("wake up, neo.");
+  expression = "";
+  unlockAchievement("matrixWord");
+}
+
+function triggerYolo(){
+  const names = Object.keys(THEMES);
+  const randomTheme = names[Math.floor(Math.random()*names.length)];
+  applyTheme(randomTheme);
+  playSound("equals");
+  setDisplay("YOLO'd into: " + randomTheme);
+  expression = "";
+  unlockAchievement("yoloWord");
+}
+
+function triggerNice(){
+  playSound("equals");
+  setDisplay("69. nice.");
+  expression = "";
+  unlockAchievement("niceWord");
+}
+
+function triggerKonamiWord(){
+  playSound("equals");
+  setDisplay("you already know the code. respect.");
+  expression = "";
+}
+
+function triggerCalcWord(){
+  playSound("number", "0");
+  setDisplay("someone say my name?");
+  expression = "";
+}
+
+const HELP_CONFESSIONS = [
+  "honestly? I've never taken a math class in my life.",
+  "confession: I don't actually understand fractions, I just guess.",
+  "between us, the graph tab is held together with duct tape.",
+  "I once divided by zero on purpose. no regrets.",
+  "I was supposed to be a to-do list app. this is what happened instead.",
+  "my favorite number is 7. don't ask why.",
+  "I get nervous every time someone opens the Programmer tab.",
+  "if you close this tab I stop existing. think about that.",
+];
+function triggerHelp(){
+  playSound("clear");
+  setDisplay(pickRandom(HELP_CONFESSIONS));
+  expression = "";
+}
+
+const SECRET_WORDS = {
+  kuzey:  triggerKuzeyBlackout,
+  matrix: triggerMatrix,
+  yolo:   triggerYolo,
+  nice:   triggerNice,
+  konami: triggerKonamiWord,
+  calc:   triggerCalcWord,
+  help:   triggerHelp,
+};
+const MAX_WORD_LEN = Math.max(...Object.keys(SECRET_WORDS).map(w=>w.length));
+let secretWordBuffer = "";
 
 document.addEventListener('keydown', e=>{
   const tag = (e.target.tagName || "").toLowerCase();
   if(tag === "input" || tag === "select" || tag === "textarea") return;
-  if(!/^[a-zA-Z]$/.test(e.key)){ kuzeyProgress = ""; return; }
-  kuzeyProgress = (kuzeyProgress + e.key.toLowerCase()).slice(-5);
-  if(kuzeyProgress === "kuzey") triggerKuzeyBlackout();
+  if(!/^[a-zA-Z]$/.test(e.key)){ secretWordBuffer = ""; return; }
+  secretWordBuffer = (secretWordBuffer + e.key.toLowerCase()).slice(-MAX_WORD_LEN);
+  for(const word in SECRET_WORDS){
+    if(secretWordBuffer.endsWith(word)){
+      SECRET_WORDS[word]();
+      secretWordBuffer = "";
+      break;
+    }
+  }
+});
+
+// digits typed "69" anywhere -> the obvious joke, no achievement, just flavor
+let digitEggBuffer = "";
+document.addEventListener('keydown', e=>{
+  const tag = (e.target.tagName || "").toLowerCase();
+  if(tag === "input" || tag === "select" || tag === "textarea") return;
+  if(!/^[0-9]$/.test(e.key)){ digitEggBuffer = ""; return; }
+  digitEggBuffer = (digitEggBuffer + e.key).slice(-2);
+  if(digitEggBuffer === "69"){
+    playSound("equals");
+    setDisplay("nice.");
+    expression = "";
+    digitEggBuffer = "";
+  }
+});
+
+// ==========================================
+// DEBUG MODE — type "debug" to toggle, then test commands below
+// (none of these touch real achievement/state data)
+// ==========================================
+let debugMode = false;
+
+function toggleDebugMode(){
+  debugMode = !debugMode;
+  setDisplay(debugMode ? "🐛 debug mode ON — try test1, test2, test3, test4, test5" : "🐛 debug mode OFF");
+  expression = "";
+}
+
+const DEBUG_COMMANDS = {
+  test1: ()=>{
+    // infinite, repeatable fake achievement popup — not a real unlock
+    showAchievementToast({icon:"🧪", title:"Test Achievement", desc:"Fake popup — not a real achievement"});
+    playAchievementChime();
+  },
+  test2: ()=>{
+    // force Idle Mode on immediately, bypassing the 20s wait
+    exitIdleMode();
+    enterIdleMode();
+  },
+  test3: ()=>{ roast(); },
+  test4: ()=>{ playSound("equals"); setDisplay(pickRandom(DIV_ZERO_ROASTS)); expression = ""; },
+  test5: ()=>{ playSound("equals"); setDisplay(pickRandom(ZERO_POW_ZERO_ROASTS)); expression = ""; },
+};
+
+const DEBUG_MAX_LEN = Math.max(5, ...Object.keys(DEBUG_COMMANDS).map(w=>w.length));
+let debugWordBuffer = "";
+
+document.addEventListener('keydown', e=>{
+  const tag = (e.target.tagName || "").toLowerCase();
+  if(tag === "input" || tag === "select" || tag === "textarea") return;
+  if(!/^[a-zA-Z0-9]$/.test(e.key)){ debugWordBuffer = ""; return; }
+  debugWordBuffer = (debugWordBuffer + e.key.toLowerCase()).slice(-DEBUG_MAX_LEN);
+  if(debugWordBuffer.endsWith("debug")){
+    toggleDebugMode();
+    debugWordBuffer = "";
+    return;
+  }
+  if(!debugMode) return;
+  for(const cmd in DEBUG_COMMANDS){
+    if(debugWordBuffer.endsWith(cmd)){
+      DEBUG_COMMANDS[cmd]();
+      debugWordBuffer = "";
+      break;
+    }
+  }
 });
 </script>
 </body>
