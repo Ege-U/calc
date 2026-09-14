@@ -265,7 +265,7 @@ select, .conv-display, .theme-name-input{
     <p class="hint">Try <strong>x²</strong>, <strong>sin(x)</strong>, or <strong>abs(x)</strong>.</p>
   </div>
 
-  <div class="version-tag">calc. — The Best Calculator · v1.8.0</div>
+  <div class="version-tag">calc. — The Best Calculator · v1.9.0</div>
 </div>
 
 <div class="achievement-toast" id="achievementToast" role="status" aria-live="polite"></div>
@@ -702,11 +702,13 @@ const ACHIEVEMENT_DEFS = {
   peacemaker:  {icon:"🤝", title:"Peacemaker",            desc:"Solved an equation with no solution"},
   firstTimer:  {icon:"🐣", title:"First Timer",           desc:"Did your very first calculation"},
   customCreator:{icon:"🌈", title:"Custom Creator",       desc:"Saved your own custom theme"},
+  theFoundation:{icon:"🔴", title:"The Foundation",       desc:"Typed \"scp\" and secured, contained, protected"},
 };
 let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false, kuzey:false,
   explorer:false, speedDemon:false, nightOwl:false, graphNerd:false, solverFan:false, converterFan:false,
   idleChat:false, matrixWord:false, yoloWord:false, niceWord:false,
-  perfectionist:false, themeHopper:false, marathon:false, peacemaker:false, firstTimer:false, customCreator:false};
+  perfectionist:false, themeHopper:false, marathon:false, peacemaker:false, firstTimer:false, customCreator:false,
+  theFoundation:false};
 let calcCount = 0;
 let calcTimestamps = [];
 let themesUsedSet = new Set();
@@ -1629,6 +1631,7 @@ function triggerKuzeyBlackout(){
 }
 
 const MATRIX_THEME = {bg:"#000000",display:"#001a00",btn:"#001a00",btn_op:"#003300",btn_eq:"#00ff41",fg:"#00ff41",label_fg:"#00cc33"};
+const SCP_THEME = {bg:"#0a0a0a",display:"#141414",btn:"#1c1c1c",btn_op:"#262626",btn_eq:"#c41e3a",fg:"#e8e8e8",label_fg:"#8a8a8a"};
 function triggerMatrix(){
   THEMES["The Matrix"] = {...MATRIX_THEME};
   refreshThemeSelect();
@@ -1683,6 +1686,35 @@ function triggerHelp(){
   expression = "";
 }
 
+const SCP_FACTS = [
+  "SCP-████: A calculator that solves any equation, but subtracts one hour from the operator's life per digit typed.",
+  "SCP-████: An anomalous number that, when divided by any value, causes mild déjà vu in a 3-meter radius.",
+  "SCP-████: A vending machine that only accepts payment in equations with no real solution.",
+  "SCP-████: A whiteboard that erases itself if the math on it is wrong. Foundation mathematicians hate it.",
+  "SCP-████: A pocket dimension shaped like a TI-84, humming faintly at 60Hz. Do not press ON.",
+  "SCP-████: A theorem that, once proven, cannot be un-proven, forgotten, or explained to anyone else.",
+  "SCP-████: An abacus that counts backwards from infinity. Containment consists of not asking it to stop.",
+  "SCP-████: A graphing calculator that plots functions from a timeline that hasn't happened yet.",
+  "SCP-████: A single digit, '0', found floating in a containment chamber. Refuses to be multiplied.",
+  "Class-D personnel are not permitted near SCP-████ while holding this calculator. Reason: redacted.",
+  "SCP-173: A concrete statue that only moves when nobody is directly looking at it. Blinking is dangerous. Do not look away.",
+  "SCP-096: Harmless until its face is seen, even in a photo. After that, it will find and kill whoever saw it. Extremely fast.",
+  "SCP-682: A large reptilian creature that regenerates from almost any damage and despises all life. Containment is a constant, ongoing struggle.",
+  "SCP-079: An old, low-power AI from the 1970s, recovered from a scrapped computer. Highly intelligent, deeply resentful of its containment.",
+  "SCP-999: A large, gelatinous, tangerine-colored blob that only wants to cuddle. Universally loved by Foundation staff.",
+  "SCP-049: A plague doctor who believes he can cure a disease no one else can see, by any means he considers necessary.",
+  "SCP-106: An elderly, decaying humanoid that can pass through solid matter, corroding it, and drags victims into a personal pocket dimension.",
+];
+function triggerSCP(){
+  THEMES["The Foundation"] = {...SCP_THEME};
+  refreshThemeSelect();
+  applyTheme("The Foundation");
+  playSound("clear");
+  setDisplay(pickRandom(SCP_FACTS));
+  expression = "";
+  unlockAchievement("theFoundation");
+}
+
 const SECRET_WORDS = {
   kuzey:  triggerKuzeyBlackout,
   matrix: triggerMatrix,
@@ -1691,6 +1723,7 @@ const SECRET_WORDS = {
   konami: triggerKonamiWord,
   calc:   triggerCalcWord,
   help:   triggerHelp,
+  scp:    triggerSCP,
 };
 const MAX_WORD_LEN = Math.max(...Object.keys(SECRET_WORDS).map(w=>w.length));
 let secretWordBuffer = "";
