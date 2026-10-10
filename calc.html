@@ -265,7 +265,7 @@ select, .conv-display, .theme-name-input{
     <input type="text" id="solveInput" class="conv-display" placeholder="e.g. 2x + 3 = 11" style="text-align:left; font-size:17px;">
     <button id="solveBtn" class="eq">Solve for x</button>
     <div class="result-line" id="solveResult">Result: -</div>
-    <p class="hint">Handles linear (2x+3=11) and quadratic (x²-5x+6=0) equations in x.</p>
+    <p class="hint">Linear and quadratic (x²-5x+6=0) are solved exactly. Anything else (x^3 = 8, sin(x) = 0.5) is solved numerically between -100 and 100.</p>
   </div>
 
   <div class="sidebar">
@@ -869,90 +869,225 @@ function exportHistory(){
   URL.revokeObjectURL(url);
 }
 
-function sanitize(expr){
-  return expr
-    .replace(/\^/g, "**")
-    .replace(/√/g, "sqrt")
-    .replace(/π/g, "PI")
-    .replace(/τ/g, "(2*PI)")
-    .replace(/φ/g, "1.61803398875")
-    .replace(/(?<![a-zA-Z])e(?![a-zA-Z(])/g, "E")
-    .replace(/\bAND\b/g, "&")
-    .replace(/\bXOR\b/g, "^")
-    .replace(/\bOR\b/g, "|")
-    .replace(/\bLSH\b/g, "<<")
-    .replace(/\bRSH\b/g, ">>");
+// ==========================================
+// EXPRESSION ENGINE — tokenizer + recursive-descent parser
+// Replaces the old chain of .replace() calls + Function(). That approach had
+// name collisions (log2 -> Math.log102), choked on -2^2, 07 (strict-mode
+// octal) and 1E+21, and needed the logic duplicated for the solver.
+// Nothing here uses eval/Function, so only whitelisted names can ever run.
+// ==========================================
+const MATH_FUNCS = {
+  sin:Math.sin, cos:Math.cos, tan:Math.tan, asin:Math.asin, acos:Math.acos, atan:Math.atan,
+  sinh:Math.sinh, cosh:Math.cosh, tanh:Math.tanh,
+  log:Math.log10, log2:Math.log2, ln:Math.log, exp:Math.exp,
+  sqrt:Math.sqrt, cbrt:Math.cbrt, abs:Math.abs, sign:Math.sign,
+  floor:Math.floor, ceil:Math.ceil, round:Math.round,
+  min:Math.min, max:Math.max, hypot:Math.hypot,
+};
+const VARIADIC_FUNCS = new Set(["min","max","hypot"]);
+const MATH_CONSTS = { pi:Math.PI, PI:Math.PI, "π":Math.PI, "τ":2*Math.PI, "φ":(1+Math.sqrt(5))/2, e:Math.E };
+const WORD_OPS = { AND:"&", OR:"|", XOR:"xor", LSH:"<<", RSH:">>" };
+const BIN_OPS = {
+  "|":(a,b)=>a|b, "xor":(a,b)=>a^b, "&":(a,b)=>a&b, "<<":(a,b)=>a<<b, ">>":(a,b)=>a>>b,
+  "+":(a,b)=>a+b, "-":(a,b)=>a-b, "*":(a,b)=>a*b, "/":(a,b)=>a/b, "%":(a,b)=>a%b,
+};
+const hasOwn = (o,k)=>Object.prototype.hasOwnProperty.call(o,k);
+const NUM_RE = /(?:\d+\.?\d*|\.\d+)(?:E[+-]?\d+)?/y;   // "E" (capital) = exponent, so 2e3 is 2*e*3
+const WORD_RE = /log2|[A-Za-z]+/y;           // log2 is the only name with a digit
+
+function tokenize(src){
+  const toks = [];
+  let i = 0;
+  while(i < src.length){
+    const ch = src[i];
+    if(/\s/.test(ch)){ i++; continue; }
+    NUM_RE.lastIndex = i;
+    let m = NUM_RE.exec(src);
+    if(m){ toks.push({t:"num", v:parseFloat(m[0])}); i += m[0].length; continue; }
+    WORD_RE.lastIndex = i;
+    m = WORD_RE.exec(src);
+    if(m){
+      const w = m[0]; i += w.length;
+      if(hasOwn(WORD_OPS, w)) toks.push({t:"op", v:WORD_OPS[w]});
+      else if(hasOwn(MATH_FUNCS, w)) toks.push({t:"func", v:w});
+      else if(hasOwn(MATH_CONSTS, w)) toks.push({t:"const", v:MATH_CONSTS[w]});
+      else if(w === "x" || w === "X") toks.push({t:"var"});
+      else throw new Error("Unknown name: " + w);
+      continue;
+    }
+    if(ch === "π" || ch === "τ" || ch === "φ"){ toks.push({t:"const", v:MATH_CONSTS[ch]}); i++; continue; }
+    if(ch === "√"){ toks.push({t:"func", v:"sqrt"}); i++; continue; }
+    if(ch === "²" || ch === "³"){ toks.push({t:"pow"}, {t:"num", v: ch === "²" ? 2 : 3}); i++; continue; }
+    if(src.startsWith("**", i)){ toks.push({t:"pow"}); i += 2; continue; }
+    if(src.startsWith("<<", i) || src.startsWith(">>", i)){ toks.push({t:"op", v:src.substr(i,2)}); i += 2; continue; }
+    if(ch === "^"){ toks.push({t:"pow"}); i++; continue; }
+    if(ch === "×"){ toks.push({t:"op", v:"*"}); i++; continue; }
+    if(ch === "÷"){ toks.push({t:"op", v:"/"}); i++; continue; }
+    if(ch === "−"){ toks.push({t:"op", v:"-"}); i++; continue; }
+    if("+-*/%&|".includes(ch)){ toks.push({t:"op", v:ch}); i++; continue; }
+    if(ch === "("){ toks.push({t:"lp"}); i++; continue; }
+    if(ch === ")"){ toks.push({t:"rp"}); i++; continue; }
+    if(ch === ","){ toks.push({t:"comma"}); i++; continue; }
+    throw new Error("Unexpected character: " + ch);
+  }
+  return toks;
 }
 
-// Safe-ish evaluator: only allow digits, operators, parens, and known function names
-function safeEval(expr){
-  let js = sanitize(expr);
-  js = js.replace(/asin/g, "__ASIN__").replace(/acos/g, "__ACOS__").replace(/atan/g, "__ATAN__")
-         .replace(/sinh/g, "__SINH__").replace(/cosh/g, "__COSH__").replace(/tanh/g, "__TANH__");
-  js = js.replace(/\*\*/g, "__POW__");
-  js = js.replace(/sin/g, "Math.sin")
-         .replace(/cos/g, "Math.cos")
-         .replace(/tan/g, "Math.tan")
-         .replace(/log2/g, "Math.log2")
-         .replace(/log/g, "Math.log10")
-         .replace(/ln/g, "Math.log")
-         .replace(/exp/g, "Math.exp")
-         .replace(/sqrt/g, "Math.sqrt")
-         .replace(/abs/g, "Math.abs")
-         .replace(/floor/g, "Math.floor")
-         .replace(/ceil/g, "Math.ceil")
-         .replace(/round/g, "Math.round")
-         .replace(/cbrt/g, "Math.cbrt")
-         .replace(/sign/g, "Math.sign")
-         .replace(/min/g, "Math.min")
-         .replace(/max/g, "Math.max")
-         .replace(/hypot/g, "Math.hypot")
-         .replace(/PI/g, "Math.PI")
-         .replace(/E/g, "Math.E");
-  js = js.replace(/__ASIN__/g, "Math.asin").replace(/__ACOS__/g, "Math.acos").replace(/__ATAN__/g, "Math.atan")
-         .replace(/__SINH__/g, "Math.sinh").replace(/__COSH__/g, "Math.cosh").replace(/__TANH__/g, "Math.tanh");
-  js = js.replace(/__POW__/g, "**");
-  // balance parens
-  const open = (js.match(/\(/g)||[]).length;
-  const close = (js.match(/\)/g)||[]).length;
-  if(open>close) js += ")".repeat(open-close);
-  if(!/^(?:(?:Math\.(?:sin|cos|tan|asin|acos|atan|sinh|cosh|tanh|log10|log2|log|exp|sqrt|cbrt|abs|sign|floor|ceil|round|min|max|hypot|PI|E))|[0-9+\-*/%,.()\s<>&|^])*$/.test(js)) throw new Error("Invalid expression");
-  // eslint-disable-next-line no-new-func
-  return Function('"use strict"; return (' + js + ')')();
+// Compiles an expression into a function of x. Precedence (low -> high):
+//   |  <  xor  <  &  <  << >>  <  + -  <  * / % (and implicit multiply)  <  unary -  <  ^
+// so -2^2 = -4, 2^3^2 = 512, 2x = 2*x, 2(3+4) = 14, 2π = 2*π.
+// Unclosed "(" are auto-closed at the end, like the old evaluator did.
+function compile(src, allowX=false){
+  const toks = tokenize(String(src));
+  let p = 0, usesX = false;
+  const peek = ()=>toks[p];
+  const bad = ()=>{ throw new Error("Invalid expression"); };
+
+  function bin(next, ops){
+    let left = next();
+    for(;;){
+      const t = peek();
+      if(!t || t.t !== "op" || !ops.includes(t.v)) return left;
+      p++;
+      const right = next(), f = BIN_OPS[t.v], l = left;
+      left = (x)=>f(l(x), right(x));
+    }
+  }
+  function parseBitOr(){ return bin(parseBitXor, ["|"]); }
+  function parseBitXor(){ return bin(parseBitAnd, ["xor"]); }
+  function parseBitAnd(){ return bin(parseShift, ["&"]); }
+  function parseShift(){ return bin(parseAdd, ["<<", ">>"]); }
+  function parseAdd(){ return bin(parseMul, ["+", "-"]); }
+
+  const startsOperand = t => t && (t.t === "num" || t.t === "const" || t.t === "var" || t.t === "func" || t.t === "lp");
+  function parseMul(){
+    let left = parseUnary();
+    for(;;){
+      const t = peek();
+      if(!t) return left;
+      let op;
+      if(t.t === "op" && (t.v === "*" || t.v === "/" || t.v === "%")){ p++; op = t.v; }
+      else if(startsOperand(t) && !(t.t === "num" && toks[p-1].t === "num")) op = "*";   // implicit multiply
+      else return left;
+      const right = parseUnary(), f = BIN_OPS[op], l = left;
+      left = (x)=>f(l(x), right(x));
+    }
+  }
+  function parseUnary(){
+    const t = peek();
+    if(t && t.t === "op" && (t.v === "-" || t.v === "+")){
+      p++;
+      const u = parseUnary();
+      return t.v === "-" ? (x)=>-u(x) : u;
+    }
+    return parsePow();
+  }
+  function parsePow(){
+    const base = parsePrimary();
+    const t = peek();
+    if(t && t.t === "pow"){
+      p++;
+      const ex = parseUnary();
+      return (x)=>Math.pow(base(x), ex(x));
+    }
+    return base;
+  }
+  function closeParen(){
+    const t = peek();
+    if(!t) return;                       // auto-close at end of input
+    if(t.t === "rp"){ p++; return; }
+    bad();
+  }
+  function parsePrimary(){
+    const t = toks[p++];
+    if(!t) bad();
+    switch(t.t){
+      case "num":
+      case "const": { const v = t.v; return ()=>v; }
+      case "var":
+        if(!allowX) bad();
+        usesX = true;
+        return (x)=>x;
+      case "lp": { const e = parseBitOr(); closeParen(); return e; }
+      case "func": {
+        if(!peek() || peek().t !== "lp") bad();
+        p++;
+        const args = [parseBitOr()];
+        while(peek() && peek().t === "comma"){ p++; args.push(parseBitOr()); }
+        closeParen();
+        if(!VARIADIC_FUNCS.has(t.v) && args.length !== 1) bad();
+        const f = MATH_FUNCS[t.v];
+        return args.length === 1 ? (x)=>f(args[0](x)) : (x)=>f(...args.map(a=>a(x)));
+      }
+      default: bad();
+    }
+  }
+
+  const root = parseBitOr();
+  if(p < toks.length) bad();
+  const fn = (x)=>root(x);
+  fn.usesX = usesX;
+  return fn;
 }
+
+function safeEval(expr){ return compile(expr)(); }
 
 // ==========================================
-// EQUATION SOLVER (numeric sampling — no symbolic algebra required)
-// Works for anything linear or quadratic in x by fitting a curve
-// through f(0), f(1), f(2) of (lhs - rhs).
+// EQUATION SOLVER
+// Linear/quadratic: fit a parabola through f(0), f(1), f(2) of (lhs - rhs) and
+// VERIFY it at extra points (the old version trusted the fit, so x^3 = 8 or
+// sin(x) = 0.5 gave confidently wrong answers). Anything that isn't a
+// quadratic is solved numerically on [-100, 100].
 // ==========================================
-function toSolverJS(expr){
-  let js = sanitize(expr);
-  // insert implicit multiplication: 2x -> 2*x, 2(x+1) -> 2*(x+1), )( -> )*(, x( -> x*(
-  js = js.replace(/(\d)\s*([xX(])/g, '$1*$2')
-         .replace(/([xX)])\s*(\d)/g, '$1*$2')
-         .replace(/\)\s*\(/g, ')*(')
-         .replace(/([xX])\s*\(/g, '$1*(');
-  js = js.replace(/asin/g, "__ASIN__").replace(/acos/g, "__ACOS__").replace(/atan/g, "__ATAN__")
-         .replace(/sinh/g, "__SINH__").replace(/cosh/g, "__COSH__").replace(/tanh/g, "__TANH__");
-  js = js.replace(/\*\*/g, "__POW__");
-  js = js.replace(/sin/g, "Math.sin").replace(/cos/g, "Math.cos").replace(/tan/g, "Math.tan")
-         .replace(/log2/g, "Math.log2").replace(/log/g, "Math.log10").replace(/ln/g, "Math.log")
-         .replace(/exp/g, "Math.exp").replace(/sqrt/g, "Math.sqrt").replace(/abs/g, "Math.abs")
-         .replace(/floor/g, "Math.floor").replace(/ceil/g, "Math.ceil").replace(/round/g, "Math.round")
-         .replace(/cbrt/g, "Math.cbrt").replace(/sign/g, "Math.sign").replace(/min/g, "Math.min")
-         .replace(/max/g, "Math.max").replace(/hypot/g, "Math.hypot").replace(/PI/g, "Math.PI").replace(/E/g, "Math.E");
-  js = js.replace(/__ASIN__/g, "Math.asin").replace(/__ACOS__/g, "Math.acos").replace(/__ATAN__/g, "Math.atan")
-         .replace(/__SINH__/g, "Math.sinh").replace(/__COSH__/g, "Math.cosh").replace(/__TANH__/g, "Math.tanh");
-  js = js.replace(/__POW__/g, "**");
-  const open = (js.match(/\(/g)||[]).length;
-  const close = (js.match(/\)/g)||[]).length;
-  if(open>close) js += ")".repeat(open-close);
-  if(!/^(?:(?:Math\.(?:sin|cos|tan|asin|acos|atan|sinh|cosh|tanh|log10|log2|log|exp|sqrt|cbrt|abs|sign|floor|ceil|round|min|max|hypot|PI|E))|[0-9xX+\-*/%,.()\s<>&|^])*$/.test(js)) throw new Error("Invalid equation");
-  return js;
-}
-
 function round6(n){ return Math.round(n*1e6)/1e6; }
+
+function findRoots(fn, lo=-100, hi=100, steps=20000){
+  const xs = new Array(steps+1), fs = new Array(steps+1);
+  const dx = (hi-lo)/steps;
+  for(let i=0;i<=steps;i++){
+    const x = lo + i*dx; xs[i] = x;
+    let v; try{ v = fn(x); }catch(e){ v = NaN; }
+    fs[i] = v;
+  }
+  const mags = fs.filter(Number.isFinite).map(Math.abs).sort((a,b)=>a-b);
+  if(!mags.length) return [];
+  const tol = 1e-7 * Math.max(1, mags[Math.floor(mags.length/2)]);
+  const roots = [];
+  const accept = r => { if(Number.isFinite(r) && Math.abs(fn(r)) <= tol) roots.push(r); };
+
+  // 1) sign changes -> bisection (poles are rejected by the tolerance check)
+  for(let i=0;i<=steps;i++){
+    const f = fs[i];
+    if(f === 0){ roots.push(xs[i]); continue; }
+    if(i > 0 && Number.isFinite(f) && Number.isFinite(fs[i-1]) && fs[i-1] !== 0 && (fs[i-1] < 0) !== (f < 0)){
+      let a = xs[i-1], b = xs[i], fa = fs[i-1];
+      for(let k=0;k<80;k++){
+        const m = (a+b)/2, fm = fn(m);
+        if(!Number.isFinite(fm)) break;
+        if(fm === 0){ a = b = m; break; }
+        if((fm < 0) === (fa < 0)){ a = m; fa = fm; } else { b = m; }
+      }
+      accept((a+b)/2);
+    }
+  }
+  // 2) double roots (curve touches zero without crossing) -> minimise |f|
+  for(let i=1;i<steps;i++){
+    const a = Math.abs(fs[i-1]), b = Math.abs(fs[i]), c = Math.abs(fs[i+1]);
+    if(!(Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c))) continue;
+    if(b <= a && b <= c && (b < a || b < c) && fs[i-1]*fs[i+1] > 0){
+      let l = xs[i-1], r = xs[i+1];
+      for(let k=0;k<100;k++){
+        const m1 = l+(r-l)/3, m2 = r-(r-l)/3;
+        if(Math.abs(fn(m1)) < Math.abs(fn(m2))) r = m2; else l = m1;
+      }
+      accept((l+r)/2);
+    }
+  }
+  roots.sort((u,v)=>u-v);
+  const out = [];
+  for(const r of roots) if(!out.length || Math.abs(r - out[out.length-1]) > 1e-5) out.push(r);
+  return out;
+}
 
 function solveEquation(){
   const raw = document.getElementById('solveInput').value.trim();
@@ -962,34 +1097,57 @@ function solveEquation(){
     let lhs, rhs;
     if(raw.includes("=")){ const parts = raw.split("="); lhs = parts[0]; rhs = parts.slice(1).join("="); }
     else { lhs = raw; rhs = "0"; }
-    const fn = Function('x', '"use strict"; return ((' + toSolverJS(lhs) + ') - (' + toSolverJS(rhs) + '));');
+    const L = compile(lhs, true), R = compile(rhs, true);
+    const fn = (x)=>L(x) - R(x);
+
+    // is (lhs - rhs) exactly a polynomial of degree <= 2?
     const f0 = fn(0), f1 = fn(1), f2 = fn(2);
-    if(![f0,f1,f2].every(Number.isFinite)) throw new Error("undefined at sample points");
-    const m1 = f1-f0, m2 = f2-f1;
-    const isLinear = Math.abs(m2-m1) < 1e-6*(1+Math.abs(m1)+Math.abs(m2));
+    let poly = false, a = 0, b = 0, c = 0;
+    if([f0,f1,f2].every(Number.isFinite)){
+      a = (f2 - 2*f1 + f0)/2; b = f1 - f0 - a; c = f0;
+      poly = [-7.5, -3, -1, 0.5, 3, 7].every(t=>{
+        const v = fn(t), pv = a*t*t + b*t + c;
+        return Number.isFinite(v) && Math.abs(v - pv) <= 1e-7*(1 + Math.abs(v) + Math.abs(pv));
+      });
+    }
     playSound("equals");
     unlockAchievement("solverFan");
-    if(isLinear){
-      const m = m1, b = f0;
-      if(Math.abs(m) < 1e-9){
-        resEl.textContent = Math.abs(b) < 1e-9 ? "Result: infinite solutions (always true)" : "Result: no solution";
-        if(Math.abs(b) >= 1e-9) unlockAchievement("peacemaker");
+
+    if(poly){
+      const scale = 1 + Math.abs(a) + Math.abs(b) + Math.abs(c);
+      if(Math.abs(a) < 1e-9*scale){
+        if(Math.abs(b) < 1e-9*scale){
+          const always = Math.abs(c) < 1e-9*scale;
+          resEl.textContent = always ? "Result: infinite solutions (always true)" : "Result: no solution";
+          if(!always) unlockAchievement("peacemaker");
+        } else {
+          const x = round6(-c/b);
+          resEl.textContent = `Result: x = ${x}`;
+          if(Number.isInteger(x)) unlockAchievement("perfectionist");
+        }
       } else {
-        const x = round6(-b/m);
-        resEl.textContent = `Result: x = ${x}`;
-        if(Number.isInteger(x)) unlockAchievement("perfectionist");
+        let disc = b*b - 4*a*c;
+        if(disc < 0 && disc > -1e-9*(b*b + 4*Math.abs(a*c) + 1)) disc = 0;   // float noise
+        if(disc >= 0){
+          const sq = Math.sqrt(disc);
+          const x1 = round6((-b+sq)/(2*a)), x2 = round6((-b-sq)/(2*a));
+          resEl.textContent = Math.abs(x1-x2) < 1e-9 ? `Result: x = ${x1}` : `Result: x = ${x1} or x = ${x2}`;
+          if(Number.isInteger(x1) || Number.isInteger(x2)) unlockAchievement("perfectionist");
+        } else {
+          const re = round6(-b/(2*a)), im = round6(Math.sqrt(-disc)/(2*Math.abs(a)));
+          resEl.textContent = `Result: x = ${re} ± ${im}i`;
+        }
       }
     } else {
-      const a = (f2-2*f1+f0)/2, b = f1-f0-a, c = f0;
-      const disc = b*b - 4*a*c;
-      if(disc >= 0){
-        const sq = Math.sqrt(disc);
-        const x1 = round6((-b+sq)/(2*a)), x2 = round6((-b-sq)/(2*a));
-        resEl.textContent = Math.abs(x1-x2) < 1e-9 ? `Result: x = ${x1}` : `Result: x = ${x1} or x = ${x2}`;
-        if(Number.isInteger(x1) || Number.isInteger(x2)) unlockAchievement("perfectionist");
+      const roots = findRoots(fn).map(round6);
+      if(!roots.length){
+        resEl.textContent = "Result: no solution found between -100 and 100";
       } else {
-        const re = round6(-b/(2*a)), im = round6(Math.sqrt(-disc)/(2*a));
-        resEl.textContent = `Result: x = ${re} ± ${im}i`;
+        // periodic functions have dozens of roots: show the 8 closest to zero, in order
+        const near = [...roots].sort((u,v)=>Math.abs(u)-Math.abs(v) || u-v).slice(0, 8).sort((u,v)=>u-v);
+        const shown = near.map(r => `x = ${r}`).join(" or ");
+        resEl.textContent = `Result: ${shown}${roots.length > 8 ? " … (" + roots.length + " found)" : ""} (numeric, searched -100 to 100)`;
+        if(roots.some(Number.isInteger)) unlockAchievement("perfectionist");
       }
     }
   }catch(e){
@@ -1024,6 +1182,7 @@ function updateHistory(){
     li.setAttribute('role', 'button');
     const useItem = ()=>{
       expression = item.split(' = ')[0];
+      justEvaluated = false;
       setDisplay(expression);
       updateProgDisplay();
     };
@@ -1053,6 +1212,39 @@ function checkRapidClicks(){
   }
 }
 
+let justEvaluated = false;
+
+// Number -> expression text. Uses capital "E" for exponents (1E+21) so it can't
+// be mistaken for Euler's number when the result is fed back in.
+function fmtNum(n, decimals=6){
+  if(!Number.isFinite(n)) return String(n);
+  const f = Math.pow(10, decimals);
+  const r = Number.isInteger(n) ? n : Math.round(n*f)/f;
+  return String(r).replace("e", "E");
+}
+
+// Significant-digit version for values that get fed back in (1/x, deg, rad, ans, MR):
+// keeps 1E-11 instead of rounding it to 0.
+function fmtSig(n){
+  if(!Number.isFinite(n)) return String(n);
+  return String(parseFloat(n.toPrecision(12))).replace("e", "E");
+}
+
+// Appending a number right after another value (5 then MR, ans, rand, 10ˣ)
+// used to glue digits together (5 + 7 -> "57"). Insert a multiply instead.
+const ENDS_WITH_VALUE = /[\d.)xeπτφ]$/;
+function appendTerm(s){
+  if(ENDS_WITH_VALUE.test(expression) && /^[\d.]/.test(s)) expression += "*";
+  expression += s;
+}
+
+// Lookarounds stop "5/0.5", "10/0.25", "10^0" and "10^0.5" from being roasted.
+const DIV_BY_ZERO_RE = /\/\s*\(?\s*0+(?:\.0*)?\)?(?![\d.])/;
+const ZERO_POW_ZERO_RE = /(?<![\d.])0+(?:\.0*)?\s*(?:\*\*|\^)\s*0+(?:\.0*)?(?![\d.])/;
+
+const FUNC_KEYS = ["sin","cos","tan","asin","acos","atan","sinh","cosh","tanh","log","ln","log₂","exp","√","abs","cbrt","sign","floor","ceil","round","min","max","hypot"];
+const FUNC_NAMES = {"√":"sqrt", "log₂":"log2"};
+
 function press(key){
   checkRapidClicks();
   if(["+","-","*","/","%","^","sin","cos","tan","log","√"].includes(key)) playSound("operator");
@@ -1062,25 +1254,31 @@ function press(key){
 
   if(["+","-","*","/"].includes(key)) operatorUsageCounts[key] = (operatorUsageCounts[key]||0)+1;
 
-  if(expression === "Error" && !["C","del","MC","MR","M+","M-"].includes(key)) expression = "";
+  if(expression === "Error" && !["MC","M+","M-"].includes(key)) expression = "";
+  // typing a digit right after "=" starts a new calculation (operators keep going)
+  if(justEvaluated){
+    if(/^[0-9.]$/.test(key)) expression = "";
+    justEvaluated = false;
+  }
+
   if(key==="C"){ expression = ""; }
   else if(key==="del"){ expression = expression.slice(0,-1); }
   else if(key==="MC"){ memory = 0; }
-  else if(key==="MR"){ expression += String(memory); }
-  else if(key==="M+"){ try{ memory += Number(safeEval(expression)); }catch(e){} }
-  else if(key==="M-"){ try{ memory -= Number(safeEval(expression)); }catch(e){} }
+  else if(key==="MR"){ appendTerm(fmtSig(memory)); }
+  else if(key==="M+"){ try{ const v = safeEval(expression); if(Number.isFinite(v)) memory += v; }catch(e){} }
+  else if(key==="M-"){ try{ const v = safeEval(expression); if(Number.isFinite(v)) memory -= v; }catch(e){} }
   else if(key==="="){
     if(expression.trim() === ""){
       setDisplay(pickRandom(EMPTY_EQUALS_LINES));
       return;
     }
-    if(/0\s*(\*\*|\^)\s*0(?!\d)/.test(expression)){
+    if(ZERO_POW_ZERO_RE.test(expression)){
       unlockAchievement("zeroPowZero");
       setDisplay(pickRandom(ZERO_POW_ZERO_ROASTS));
       saveState();
       return;
     }
-    if(/\/\s*\(?\s*0+(?:\.0*)?\)?(?!\d)/.test(expression)){
+    if(DIV_BY_ZERO_RE.test(expression)){
       unlockAchievement("divZero");
       setDisplay(pickRandom(DIV_ZERO_ROASTS));
       saveState();
@@ -1088,11 +1286,25 @@ function press(key){
     }
     try{
       let result = safeEval(expression);
-      if(typeof result === "number" && !Number.isInteger(result)) result = Math.round(result*1e6)/1e6;
+      if(!Number.isFinite(result)){
+        // 1/(2-2) and friends: the regex above can't see those, the result can
+        if(result === Infinity || result === -Infinity){
+          if(expression.includes("/")){
+            unlockAchievement("divZero");
+            setDisplay(pickRandom(DIV_ZERO_ROASTS));
+            saveState();
+            return;
+          }
+        }
+        throw new Error("not a finite number");
+      }
+      if(!Number.isInteger(result)) result = Math.round(result*1e6)/1e6;
       lastAnswer = result;
-      history.push(`${expression} = ${result}`);
+      const out = fmtNum(result);
+      history.push(`${expression} = ${out}`);
       updateHistory();
-      expression = String(result);
+      expression = out;
+      justEvaluated = true;
       calcCount++;
       if(calcCount >= 1) unlockAchievement("firstTimer");
       if(calcCount >= 100) unlockAchievement("calc100");
@@ -1107,9 +1319,8 @@ function press(key){
       expression = "Error";
     }
   }
-  else if(["sin","cos","tan","asin","acos","atan","sinh","cosh","tanh","log","ln","log₂","exp","√","abs","cbrt","sign","floor","ceil","round","min","max","hypot"].includes(key)){
-    const names = {"√":"sqrt", "log₂":"log2"};
-    expression += (names[key] || key) + "(";
+  else if(FUNC_KEYS.includes(key)){
+    expression += (FUNC_NAMES[key] || key) + "(";
   }
   else if(["AND","OR","XOR","LSH","RSH"].includes(key)){ expression += ` ${key} `; }
   else if(key==="NOT"){
@@ -1120,55 +1331,62 @@ function press(key){
   }
   else if(key==="π"){ expression += "π"; }
   else if(key==="e"){ expression += "e"; }
-  else if(key==="x²"){ expression += "**2"; }
-  else if(key==="x³"){ expression += "**3"; }
-  else if(key==="10ˣ"){ expression += "10**("; }
-  else if(key==="2ˣ"){ expression += "2**("; }
+  else if(key==="x²" || key==="x³"){
+    // square/cube the whole current expression, as the button's tooltip says
+    if(expression){
+      const simple = /^(?:\d+\.?\d*|\.\d+|[xeπτφ])$/.test(expression);
+      expression = (simple ? expression : `(${expression})`) + (key==="x²" ? "^2" : "^3");
+    }
+  }
+  else if(key==="10ˣ"){ appendTerm("10^("); }
+  else if(key==="2ˣ"){ appendTerm("2^("); }
   else if(key==="1/x"){
     try{
-      const value = Number(safeEval(expression));
-      if(value === 0) throw new Error();
-      expression = String(Math.round((1/value)*1e10)/1e10);
+      const value = safeEval(expression);
+      if(!Number.isFinite(value) || value === 0) throw new Error();
+      expression = fmtSig(1/value);
     }catch(e){ expression = "Error"; }
   }
   else if(key==="±"){
     expression = expression ? `-(${expression})` : "-";
   }
-  else if(key==="ans"){ expression += String(lastAnswer); }
+  else if(key==="ans"){ appendTerm(fmtSig(lastAnswer)); }
   else if(key==="mod"){ expression += " % "; }
-  else if(key==="rand"){ expression += String(Math.floor(Math.random()*100)); }
+  else if(key==="rand"){ appendTerm(String(Math.floor(Math.random()*100))); }
   else if(key==="τ"){ expression += "τ"; }
   else if(key==="φ"){ expression += "φ"; }
   else if(key===","){ expression += ","; }
-  else if(key==="π/2"){ expression += "π/2"; }
+  else if(key==="π/2"){ expression += "(π/2)"; }
   else if(key==="deg"){
-    try{ expression = String(Math.round((Number(safeEval(expression))*180/Math.PI)*1e10)/1e10); }
+    try{ expression = fmtSig(safeEval(expression)*180/Math.PI); }
     catch(e){ expression = "Error"; }
   }
   else if(key==="rad"){
-    try{ expression = String(Math.round((Number(safeEval(expression))*Math.PI/180)*1e10)/1e10); }
+    try{ expression = fmtSig(safeEval(expression)*Math.PI/180); }
     catch(e){ expression = "Error"; }
   }
   else if(key==="n!"){
     try{
-      const value = Number(safeEval(expression));
+      const value = safeEval(expression);
       if(!Number.isInteger(value) || value < 0 || value > 170) throw new Error();
       let result = 1;
       for(let i=2; i<=value; i++) result *= i;
-      expression = String(result);
+      expression = fmtNum(result);
     }catch(e){ expression = "Error"; }
   }
   else if(key==="%"){
-    try{
-      let val = Number(safeEval(expression));
-      let result = val/100;
-      if(Number.isInteger(result)) expression = String(result);
-      else expression = String(Math.round(result*1e6)/1e6);
-    }catch(e){ expression = "Error"; }
+    try{ expression = fmtNum(safeEval(expression)/100); }
+    catch(e){ expression = "Error"; }
   }
   else if(key === "."){
-    const currentNumber = expression.split(/[+\-*/%^()\s]/).pop();
+    // look at the number being typed (also fixes "min(1.5,2." refusing a second decimal)
+    const currentNumber = expression.split(/[^0-9.]/).pop();
     if(!currentNumber.includes(".")) expression += key;
+  }
+  else if(/^[0-9]$/.test(key)){
+    // a lone leading 0 gets replaced instead of building "07"
+    if(/(?:^|[^0-9.])0$/.test(expression)) expression = expression.slice(0,-1);
+    expression += key;
   }
   else { expression += key; }
 
@@ -1336,88 +1554,93 @@ function plotGraph(){
   const w = canvas.width, h = canvas.height;
   ctx2d.clearRect(0,0,w,h);
 
-  const rawText = document.getElementById('display').textContent;
-  try{
-    // Convert every calculator symbol/function into valid JS, once, up front.
-    let js = rawText
-      .replace(/\^/g, "**")
-      .replace(/√/g, "sqrt")
-      .replace(/π/g, "PI")
-      .replace(/sin/g,"Math.sin").replace(/cos/g,"Math.cos").replace(/tan/g,"Math.tan")
-      .replace(/sqrt/g,"Math.sqrt").replace(/log/g,"Math.log10")
-      .replace(/abs/g,"Math.abs")
-      .replace(/PI/g,"Math.PI");
-
-    if(js.trim() === "" || js.trim() === "0" || !/x/.test(js)){
-      setDisplay("Error: enter an expression with x, e.g. x**2");
-      return;
-    }
-
-    if(!/^(?:(?:Math\.(?:sin|cos|tan|log10|sqrt|abs|PI))|[0-9+\-*/%.()\s^x])*$/.test(js)) throw new Error("Invalid equation");
-    // eslint-disable-next-line no-new-func
-    const fn = Function('x', '"use strict"; return (' + js + ')');
-
-    const xs = [], ys = [];
-    for(let i=0;i<=400;i++){
-      const x = -10 + (20*i/400);
-      let y;
-      try{ y = fn(x); }catch(e){ y = NaN; }
-      xs.push(x); ys.push(Number.isFinite(y) ? y : NaN);
-    }
-    const validYs = ys.filter(Number.isFinite);
-    if(validYs.length === 0){
-      setDisplay("Error: Invalid Equation");
-      return;
-    }
-    const yMin = Math.min(...validYs), yMax = Math.max(...validYs);
-    const yRange = (yMax-yMin) || 1;
-
-    const toPx = (x,y)=>{
-      const px = ((x+10)/20)*w;
-      const py = h - ((y-yMin)/yRange)*h;
-      return [px,py];
-    };
-
-    // gridlines (light, every 2 units of x, and ~5 divisions of y)
-    ctx2d.strokeStyle = "rgba(128,128,128,.18)"; ctx2d.lineWidth = 1;
-    for(let gx=-10; gx<=10; gx+=2){
-      const [px] = toPx(gx,0);
-      ctx2d.beginPath(); ctx2d.moveTo(px,0); ctx2d.lineTo(px,h); ctx2d.stroke();
-    }
-    for(let i=0;i<=4;i++){
-      const gy = yMin + (yRange*i/4);
-      const [,py] = toPx(0,gy);
-      ctx2d.beginPath(); ctx2d.moveTo(0,py); ctx2d.lineTo(w,py); ctx2d.stroke();
-    }
-
-    // axes
-    ctx2d.strokeStyle = "#999"; ctx2d.lineWidth = 1;
-    const [zx] = toPx(0,0); const [,zy] = toPx(0,0);
-    ctx2d.beginPath(); ctx2d.moveTo(zx,0); ctx2d.lineTo(zx,h); ctx2d.stroke();
-    ctx2d.beginPath(); ctx2d.moveTo(0,zy); ctx2d.lineTo(w,zy); ctx2d.stroke();
-
-    // axis labels
-    ctx2d.fillStyle = "rgba(128,128,128,.85)"; ctx2d.font = "9px monospace";
-    ctx2d.fillText("-10", 2, h-3);
-    ctx2d.fillText("10", w-16, h-3);
-    ctx2d.fillText(String(Math.round(yMax*100)/100), 2, 9);
-    ctx2d.fillText(String(Math.round(yMin*100)/100), 2, h-12);
-
-    // curve
-    ctx2d.strokeStyle = THEMES[currentTheme].btn_eq;
-    ctx2d.lineWidth = 2;
-    ctx2d.beginPath();
-    let started = false;
-    xs.forEach((x,i)=>{
-      if(!Number.isFinite(ys[i])){ started=false; return; }
-      const [px,py] = toPx(x,ys[i]);
-      if(!started){ ctx2d.moveTo(px,py); started=true; }
-      else ctx2d.lineTo(px,py);
-    });
-    ctx2d.stroke();
-  }catch(e){
-    setDisplay("Error: Invalid Equation");
+  if(!expression.trim()){
+    setDisplay("Error: enter an expression with x, e.g. x^2");
+    return;
   }
+  let fn;
+  try{ fn = compile(expression, true); }
+  catch(e){ setDisplay("Error: Invalid Equation"); return; }
+  if(!fn.usesX){
+    setDisplay("Error: enter an expression with x, e.g. x^2");
+    return;
+  }
+
+  const xs = [], ys = [];
+  for(let i=0;i<=400;i++){
+    const x = -10 + (20*i/400);
+    let y;
+    try{ y = fn(x); }catch(e){ y = NaN; }
+    xs.push(x); ys.push(Number.isFinite(y) ? y : NaN);
+  }
+  const validYs = ys.filter(Number.isFinite);
+  if(validYs.length === 0){
+    setDisplay("Error: Invalid Equation");
+    return;
+  }
+  let yMin = Math.min(...validYs), yMax = Math.max(...validYs);
+
+  // Asymptotes (1/x, tan(x)...) used to squash everything else into a flat line.
+  // If a few extreme points dominate the range, zoom to where the curve actually lives.
+  if(validYs.length >= 20){
+    const sorted = [...validYs].sort((a,b)=>a-b);
+    const q = f => sorted[Math.min(sorted.length-1, Math.floor(f*(sorted.length-1)))];
+    const lo = q(0.02), hi = q(0.98);
+    if((yMax - yMin) > 8 * ((hi - lo) || 1e-9)){
+      const pad = (hi - lo) * 0.15 || 1;
+      yMin = lo - pad; yMax = hi + pad;
+    }
+  }
+  const yRange = (yMax - yMin) || 1;
+
+  const toPx = (x,y)=>{
+    const px = ((x+10)/20)*w;
+    const py = h - ((y-yMin)/yRange)*h;
+    return [px,py];
+  };
+
+  // gridlines (light, every 2 units of x, and ~5 divisions of y)
+  ctx2d.strokeStyle = "rgba(128,128,128,.18)"; ctx2d.lineWidth = 1;
+  for(let gx=-10; gx<=10; gx+=2){
+    const [px] = toPx(gx,0);
+    ctx2d.beginPath(); ctx2d.moveTo(px,0); ctx2d.lineTo(px,h); ctx2d.stroke();
+  }
+  for(let i=0;i<=4;i++){
+    const gy = yMin + (yRange*i/4);
+    const [,py] = toPx(0,gy);
+    ctx2d.beginPath(); ctx2d.moveTo(0,py); ctx2d.lineTo(w,py); ctx2d.stroke();
+  }
+
+  // axes (x-axis only if y=0 is actually on screen)
+  ctx2d.strokeStyle = "#999"; ctx2d.lineWidth = 1;
+  const [zx, zy] = toPx(0,0);
+  ctx2d.beginPath(); ctx2d.moveTo(zx,0); ctx2d.lineTo(zx,h); ctx2d.stroke();
+  if(yMin <= 0 && yMax >= 0){
+    ctx2d.beginPath(); ctx2d.moveTo(0,zy); ctx2d.lineTo(w,zy); ctx2d.stroke();
+  }
+
+  // axis labels
+  ctx2d.fillStyle = "rgba(128,128,128,.85)"; ctx2d.font = "9px monospace";
+  ctx2d.fillText("-10", 2, h-3);
+  ctx2d.fillText("10", w-16, h-3);
+  ctx2d.fillText(String(Math.round(yMax*100)/100), 2, 9);
+  ctx2d.fillText(String(Math.round(yMin*100)/100), 2, h-12);
+
+  // curve: break the line at gaps, off-screen points and big vertical jumps (poles)
+  ctx2d.strokeStyle = THEMES[currentTheme].btn_eq;
+  ctx2d.lineWidth = 2;
+  ctx2d.beginPath();
+  let started = false, lastPy = 0;
+  xs.forEach((x,i)=>{
+    const y = ys[i];
+    if(!Number.isFinite(y) || y < yMin || y > yMax){ started = false; return; }
+    const [px,py] = toPx(x,y);
+    if(started && Math.abs(py - lastPy) > h*0.75) started = false;
+    if(!started){ ctx2d.moveTo(px,py); started = true; }
+    else ctx2d.lineTo(px,py);
+    lastPy = py;
+  });
+  ctx2d.stroke();
 }
 
 // ==========================================
@@ -1618,10 +1841,11 @@ document.addEventListener('keydown', e=>{
   const tag = (e.target.tagName || "").toLowerCase();
   if(tag === "input" || tag === "select" || tag === "textarea") return;
   if(document.getElementById('modalBackdrop').classList.contains('open')) return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;   // let Ctrl+C, Ctrl+- (zoom) etc. through
 
-  if("0123456789+-*/.%(),".includes(e.key)) press(e.key);
+  if(e.key.length === 1 && "0123456789+-*/.%(),".includes(e.key)){ e.preventDefault(); press(e.key); }
   else if(e.key === "x" || e.key === "X") press("x");
-  else if(e.key === "Enter") press("=");
+  else if(e.key === "Enter"){ e.preventDefault(); press("="); }   // preventDefault: a focused button would also fire its own click
   else if(e.key === "Backspace") press("del");
   else if(e.key === "Escape") press("C");
 });
@@ -1790,10 +2014,11 @@ document.addEventListener('keydown', e=>{
   if(!/^[0-9]$/.test(e.key)){ digitEggBuffer = ""; return; }
   digitEggBuffer = (digitEggBuffer + e.key).slice(-2);
   if(digitEggBuffer === "69"){
-    playSound("equals");
-    setDisplay("nice.");
-    expression = "";
     digitEggBuffer = "";
+    if(expression === "69"){          // only when 69 is the whole number; 169*2 is left alone
+      playSound("equals");
+      setDisplay("nice.");            // expression stays intact, next key press shows it again
+    }
   }
 });
 
