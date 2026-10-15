@@ -105,6 +105,22 @@ select:focus-visible, .conv-display:focus-visible{
   box-shadow:0 5px 14px rgba(226,75,74,.26);
 }
 .roast:hover{ filter:brightness(1.08); }
+
+/* Keyboard toggle: touch devices only (phones/tablets have no key events until a text field is focused) */
+.kb-row{ grid-column:1 / -1; display:none; gap:8px; align-items:stretch; }
+@media (pointer:coarse){ .kb-row{ display:flex; } }
+.kb-btn{
+  flex:1; min-height:48px; padding:10px 13px; border-radius:12px; font-size:14px; font-weight:800; cursor:pointer;
+  border:1px solid color-mix(in srgb, var(--fg) 7%, transparent); color:var(--fg); background:var(--btn);
+  box-shadow:0 4px 10px rgba(0,0,0,.08); white-space:nowrap;
+}
+.kb-row.on .kb-btn{ flex:0 0 auto; background:var(--btn-eq); color:#fff; }
+.kb-input{
+  flex:1; min-width:0; min-height:48px; padding:10px 12px; border-radius:12px; font-size:16px; /* 16px = no iOS zoom */
+  border:1px solid color-mix(in srgb, var(--fg) 15%, transparent); background:var(--display); color:var(--fg);
+}
+.kb-input[hidden]{ display:none; }
+.kb-btn:focus-visible, .kb-input:focus-visible{ outline:2px solid var(--btn-eq); outline-offset:2px; }
 .convert-panel{ display:flex; flex-direction:column; gap:12px; min-height:0; justify-content:flex-start; }
 .pad[hidden], .convert-panel[hidden], .solve-panel[hidden]{ display:none !important; }
 .solve-panel{ display:flex; flex-direction:column; gap:12px; min-height:0; }
@@ -245,6 +261,10 @@ select, .conv-display, .theme-name-input{
     <button class="copy-btn" id="copyBtn" title="Copy result to clipboard" aria-label="Copy display to clipboard">📋</button>
   </div>
   <div class="copy-status" id="copyStatus"></div>
+  <div class="kb-row" id="kbRow">
+    <button type="button" class="kb-btn" id="kbBtn" aria-pressed="false" aria-controls="kbInput">⌨️ Keyboard</button>
+    <input type="text" class="kb-input" id="kbInput" hidden placeholder="type here…" aria-label="Type to use the keyboard, shortcuts and secret words" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="go">
+  </div>
 
   <div class="pad-tabs" id="padTabs" role="tablist" aria-label="Calculator mode"></div>
   <div class="pad" id="pad" role="tabpanel"></div>
@@ -305,7 +325,7 @@ select, .conv-display, .theme-name-input{
     <p class="hint">Try <strong>x²</strong>, <strong>sin(x)</strong>, or <strong>abs(x)</strong>.</p>
   </div>
 
-  <div class="version-tag">calc. • v1.10.2 • The Best Calculator.</div>
+  <div class="version-tag">calc. • v1.10.3 • The Best Calculator.</div>
 </div>
 
 <div class="achievement-toast" id="achievementToast" role="status" aria-live="polite"></div>
@@ -1854,6 +1874,63 @@ document.addEventListener('keydown', e=>{
 document.addEventListener('keydown', e=>{
   if(e.key === "Escape") document.getElementById('modalBackdrop').classList.remove('open');
 });
+
+// ==========================================
+// MOBILE KEYBOARD
+// Phones only send key events while a text field is focused, so the keyboard
+// button opens a small field and replays whatever you type as real keydown
+// events. Calculator keys, secret words, the 69 egg and debug mode all react
+// exactly like they do on a desktop keyboard.
+// ==========================================
+(function(){
+  const row = document.getElementById('kbRow');
+  const btn = document.getElementById('kbBtn');
+  const input = document.getElementById('kbInput');
+  if(!row || !btn || !input) return;
+  let prev = "", wasOn = null;
+
+  function sendKey(key){
+    document.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles:true, cancelable:true}));
+  }
+  function setOn(on){
+    row.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? "⌨️ Hide" : "⌨️ Keyboard";
+    input.hidden = !on;
+    input.value = ""; prev = "";
+    if(on) input.focus(); else input.blur();   // focus() has to happen inside the tap for iOS to open the keyboard
+  }
+
+  // pointerdown fires before the input loses focus, so remember the state the tap started in
+  btn.addEventListener('pointerdown', ()=>{ wasOn = (document.activeElement === input); });
+  btn.addEventListener('click', ()=>{
+    const was = (wasOn !== null) ? wasOn : (document.activeElement === input);
+    wasOn = null;
+    setOn(!was);
+  });
+
+  // Phone keyboards (autocorrect, predictive text) can rewrite what was typed, so compare
+  // old and new text: backspace over what changed, then replay the new tail.
+  input.addEventListener('input', ()=>{
+    const cur = input.value;
+    let i = 0;
+    while(i < cur.length && i < prev.length && cur[i] === prev[i]) i++;
+    for(let k = 0; k < prev.length - i; k++) sendKey("Backspace");
+    for(const ch of cur.slice(i)) sendKey(ch);
+    prev = cur;
+    if(cur.length > 40){ input.value = ""; prev = ""; }   // keep the field short
+  });
+  input.addEventListener('keydown', e=>{
+    if(e.key === "Enter"){ e.preventDefault(); sendKey("Enter"); }
+    else if(e.key === "Backspace" && input.value === "") sendKey("Backspace");   // nothing left to delete: delete from the calculator
+  });
+  input.addEventListener('blur', ()=>{ if(!input.hidden) setOn(false); });
+
+  // tapping a calculator button must not steal focus, or the phone keyboard closes every tap
+  document.addEventListener('mousedown', e=>{
+    if(document.activeElement === input && e.target.closest && e.target.closest('button')) e.preventDefault();
+  });
+})();
 
 // ==========================================
 // KONAMI CODE EASTER EGG
