@@ -325,7 +325,7 @@ select, .conv-display, .theme-name-input{
     <p class="hint">Try <strong>x²</strong>, <strong>sin(x)</strong>, or <strong>abs(x)</strong>.</p>
   </div>
 
-  <div class="version-tag">calc. • v1.10.3 • The Best Calculator.</div>
+  <div class="version-tag">calc. • v1.11.0 • The Best Calculator.</div>
 </div>
 
 <div class="achievement-toast" id="achievementToast" role="status" aria-live="polite"></div>
@@ -763,6 +763,7 @@ const ACHIEVEMENT_DEFS = {
   firstTimer:  {icon:"🐣", title:"First Timer",           desc:"Did your very first calculation"},
   customCreator:{icon:"🌈", title:"Custom Creator",       desc:"Saved your own custom theme"},
   theFoundation:{icon:"🔴", title:"The Foundation",       desc:"Typed \"scp\" and secured, contained, protected"},
+  gtasix:{icon:"🚔", title:"GTA VI",  desc:"we got a talking calculator before GTA VI"},
 };
 let achievements = {divZero:false, zeroPowZero:false, calc100:false, allThemes:false, secretTheme:false, kuzey:false,
   explorer:false, speedDemon:false, nightOwl:false, graphNerd:false, solverFan:false, converterFan:false,
@@ -2056,6 +2057,12 @@ function triggerSCP(){
   unlockAchievement("theFoundation");
 }
 
+function triggerGTA(){
+  playSound("equals");
+  setDisplay("we got a talking calculator before GTA VI")
+  unlockAchievement("gtasix");
+}
+
 const SECRET_WORDS = {
   kuzey:  triggerKuzeyBlackout,
   matrix: triggerMatrix,
@@ -2065,6 +2072,7 @@ const SECRET_WORDS = {
   calc:   triggerCalcWord,
   help:   triggerHelp,
   scp:    triggerSCP,
+  gta:    triggerGTA,
 };
 const MAX_WORD_LEN = Math.max(...Object.keys(SECRET_WORDS).map(w=>w.length));
 let secretWordBuffer = "";
